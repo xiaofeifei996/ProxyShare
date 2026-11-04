@@ -4,6 +4,8 @@
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
+#include <time.h>
+#include <unistd.h>
 
 // ---------------------------------------------------------------- 配置
 
@@ -69,14 +71,41 @@ NSDictionary *PSReadState(void)
 
 void PSWriteState(NSDictionary *state)
 {
-    mkdir(PS_STATE_DIR_C, 0755);
-    [state writeToFile:PS_STATE_FILE atomically:YES];
-    chmod(PS_STATE_FILE.fileSystemRepresentation, 0644);
+    mkdir(PS_STATE_DIR_C, 0777);
+
+    BOOL ok = [state writeToFile:PS_STATE_FILE atomically:YES];
+    if (!ok) {
+        // 兜底：纯 C 写一份最小状态（RootHide 下 NSData 原子写偶发失败）
+        char buf[2048];
+        int n = snprintf(buf, sizeof(buf),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+            "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            "<plist version=\"1.0\"><dict>\n"
+            "\t<key>running</key><%s/>\n"
+            "\t<key>pid</key><integer>%d</integer>\n"
+            "\t<key>socksPort</key><integer>%ld</integer>\n"
+            "\t<key>httpPort</key><integer>%ld</integer>\n"
+            "\t<key>connections</key><integer>%llu</integer>\n"
+            "\t<key>bytesUp</key><integer>%llu</integer>\n"
+            "\t<key>bytesDown</key><integer>%llu</integer>\n"
+            "</dict></plist>\n",
+            [state[@"running"] boolValue] ? "true" : "false",
+            (int)getpid(),
+            (long)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT),
+            (long)PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT),
+            (unsigned long long)PSSharedStats().acceptedConnections,
+            (unsigned long long)PSSharedStats().bytesUp,
+            (unsigned long long)PSSharedStats().bytesDown);
+        FILE *fp = fopen(PS_STATE_FILE_C, "w");
+        if (fp && n > 0) { fwrite(buf, 1, (size_t)n, fp); fclose(fp); }
+    }
+    chmod(PS_STATE_FILE_C, 0644);
 }
 
 // ---------------------------------------------------------------- 日志
 
-// 用纯 C 实现，避免 ARC / autoreleasepool 在 launchd 早期环境下的坑
+// 纯 C 实现（时间戳用 strftime），完全避开 ARC / autoreleasepool
 void PSLog(NSString *fmt, ...)
 {
     va_list ap;
@@ -84,28 +113,27 @@ void PSLog(NSString *fmt, ...)
     NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:ap];
     va_end(ap);
 
-    NSDateFormatter *df = [[NSDateFormatter alloc] init];
-    df.dateFormat = @"MM-dd HH:mm:ss";
-    NSString *line = [NSString stringWithFormat:@"%@  %@\n",
-                      [df stringFromDate:[NSDate date]], msg];
+    const char *body = msg.UTF8String ?: "";
 
-    const char *utf8 = line.UTF8String;
+    char stamp[32] = {0};
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    strftime(stamp, sizeof(stamp), "%m-%d %H:%M:%S", &tmv);
 
-    // stderr
-    fputs(utf8, stderr);
+    char line[4096];
+    snprintf(line, sizeof(line), "%s  %s\n", stamp, body);
+
+    fputs(line, stderr);
     fflush(stderr);
 
-    // 文件：纯 C，append 模式
     static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&m);
+    mkdir(PS_STATE_DIR_C, 0777);
     FILE *fp = fopen(PS_LOG_FILE_C, "a");
     if (fp) {
-        fputs(utf8, fp);
+        fputs(line, fp);
         fclose(fp);
-    } else {
-        // 日志文件打不开时，把原因写到 stderr（至少不丢信息）
-        fprintf(stderr, "[psd] 无法写 proxy.log: %s\n", strerror(errno));
-        fflush(stderr);
     }
     pthread_mutex_unlock(&m);
 }
