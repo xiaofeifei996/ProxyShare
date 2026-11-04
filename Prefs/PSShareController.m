@@ -10,7 +10,6 @@
 #import <Preferences/PSSpecifier.h>
 #import <UIKit/UIKit.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -22,50 +21,54 @@
 
 // ---------------------------------------------------------------- 控制通道
 
+static NSInteger gCmdSeq = 0;
+
+// 通过文件与守护进程通信：
+//   写 command.plist {"id":N,...} → 等 response.plist 里 id==N
 static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 {
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) return @{ @"ok": @NO, @"error": @"socket 失败" };
+    NSString *cmdPath  = @"/var/tmp/ProxyShare/command.plist";
+    NSString *respPath = @"/var/tmp/ProxyShare/response.plist";
 
-    struct timeval tv = { (time_t)timeout, 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    // 目录可能还没建（守护进程未运行过）
+    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/tmp/ProxyShare"
+                              withIntermediateDirectories:YES attributes:nil error:NULL];
 
-    struct sockaddr_un a;
-    memset(&a, 0, sizeof(a));
-    a.sun_family = AF_UNIX;
-    strncpy(a.sun_path, PS_CTRL_SOCKET, sizeof(a.sun_path) - 1);
+    // 用时间戳做序号，避免与上一次冲突
+    NSInteger myID = (NSInteger)([[NSDate date] timeIntervalSince1970] * 1000) + (gCmdSeq++ % 1000);
 
-    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
-        close(fd);
-        return @{ @"ok": @NO, @"error": @"无法连接守护进程（可能未运行）" };
+    NSMutableDictionary *payload = [req mutableCopy];
+    payload[@"id"] = @(myID);
+
+    NSError *werr = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:payload
+                                                              format:NSPropertyListXMLFormat_v1_0
+                                                             options:0
+                                                               error:&werr];
+    if (!data || ![data writeToFile:cmdPath atomically:YES]) {
+        return @{ @"ok": @NO, @"error": @"无法写入命令文件（权限不足？）" };
+    }
+    chmod(cmdPath.fileSystemRepresentation, 0666);
+
+    // 轮询等响应
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    while ([deadline timeIntervalSinceNow] > 0) {
+        NSDictionary *resp = [NSDictionary dictionaryWithContentsOfFile:respPath];
+        if ([resp isKindOfClass:[NSDictionary class]] &&
+            [resp[@"id"] integerValue] == myID) {
+            return resp;
+        }
+        usleep(120 * 1000);   // 120ms
     }
 
-    NSData *body = [NSJSONSerialization dataWithJSONObject:req options:0 error:NULL];
-    NSMutableData *payload = [body mutableCopy];
-    [payload appendBytes:"\n" length:1];
-
-    if (write(fd, payload.bytes, payload.length) != (ssize_t)payload.length) {
-        close(fd);
-        return @{ @"ok": @NO, @"error": @"发送失败" };
+    // 超时：退一步，看看能不能直接读 state.plist 兜底
+    NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:@"/var/tmp/ProxyShare/state.plist"];
+    if ([st isKindOfClass:[NSDictionary class]] && st[@"pid"]) {
+        NSMutableDictionary *d = [st mutableCopy];
+        d[@"ok"] = @YES;
+        return d;
     }
-
-    NSMutableData *resp = [NSMutableData data];
-    char buf[4096];
-    while (resp.length < 65536) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n <= 0) break;
-        [resp appendBytes:buf length:(NSUInteger)n];
-        if (memchr(buf, '\n', (size_t)n)) break;
-    }
-    close(fd);
-
-    if (!resp.length) return @{ @"ok": @NO, @"error": @"无响应" };
-
-    id obj = [NSJSONSerialization JSONObjectWithData:resp options:0 error:NULL];
-    if (![obj isKindOfClass:[NSDictionary class]])
-        return @{ @"ok": @NO, @"error": @"响应格式错误" };
-    return obj;
+    return @{ @"ok": @NO, @"error": @"守护进程未响应（可能未运行）" };
 }
 
 // ---------------------------------------------------------------- 面板
@@ -106,7 +109,7 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 }
 
 - (void)refreshStatus {
-    NSDictionary *s = PSCallControl(@{ @"cmd": @"status" }, 2.0);
+    NSDictionary *s = PSCallControl(@{ @"cmd": @"status" }, 4.0);
     self.status = s;
 
     [self reloadSpecifiers];
@@ -149,7 +152,7 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
     [[NSUserDefaults standardUserDefaults] setObject:value forKey:key];
 
     NSDictionary *resp = PSCallControl(@{ @"cmd": @"setConfig",
-                                          @"values": @{ key: value } }, 3.0);
+                                          @"values": @{ key: value } }, 6.0);
     if (![resp[@"ok"] boolValue]) {
         UIAlertController *al = [UIAlertController
             alertControllerWithTitle:@"保存失败"
@@ -223,7 +226,7 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 }
 
 - (void)resetStats:(PSSpecifier *)specifier {
-    PSCallControl(@{ @"cmd": @"resetStats" }, 2.0);
+    PSCallControl(@{ @"cmd": @"resetStats" }, 3.0);
     [self refreshStatus];
 }
 
