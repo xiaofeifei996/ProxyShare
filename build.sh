@@ -22,12 +22,13 @@ make clean >/dev/null 2>&1 || true
 # 构建守护进程 + 设置面板
 make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" DEBUG=0 2>&1 | tail -40
 
-if [ ! -f .theos/obj/psd ]; then
-    echo "错误: 未生成 .theos/obj/psd" >&2
-    exit 1
-fi
-if [ ! -f .theos/obj/psctl ]; then
-    echo "错误: 未生成 .theos/obj/psctl" >&2
+# 子项目构建，产物路径不固定，逐个查找
+THEOS_PSD="$(find .theos -type f -name psd   -not -path '*.dSYM*' 2>/dev/null | head -1)"
+THEOS_PSCTL="$(find .theos -type f -name psctl -not -path '*.dSYM*' 2>/dev/null | head -1)"
+echo "psd   = ${THEOS_PSD:-未找到}"
+echo "psctl = ${THEOS_PSCTL:-未找到}"
+if [ -z "$THEOS_PSD" ] || [ -z "$THEOS_PSCTL" ]; then
+    echo "错误: 构建产物缺失" >&2
     exit 1
 fi
 
@@ -41,8 +42,8 @@ mkdir -p "$STAGE"
 cp -R layout/* "$STAGE/"
 
 mkdir -p "$STAGE/usr/libexec" "$STAGE/usr/bin"
-cp .theos/obj/psd   "$STAGE/usr/libexec/psd"
-cp .theos/obj/psctl "$STAGE/usr/bin/psctl"
+cp "$THEOS_PSD" "$STAGE/usr/libexec/psd"
+cp "$THEOS_PSCTL" "$STAGE/usr/bin/psctl"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 安装设置面板 bundle
