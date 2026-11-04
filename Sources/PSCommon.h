@@ -24,9 +24,9 @@
 #define PS_LOG_FILE         @"/var/mobile/Library/ProxyShare/proxy.log"
 #define PS_PREFS_DOMAIN     @"com.axs.proxyshare"
 
-// 默认值
-#define PS_DEFAULT_SOCKS_PORT   1086
-#define PS_DEFAULT_HTTP_PORT    8118
+// 默认值（避开 1080/1086/8118 等代理软件常用端口）
+#define PS_DEFAULT_SOCKS_PORT   47680
+#define PS_DEFAULT_HTTP_PORT    47681
 #define PS_DEFAULT_BIND         @"0.0.0.0"
 
 // 日志上限（行）

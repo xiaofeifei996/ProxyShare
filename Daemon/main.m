@@ -11,6 +11,11 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <string.h>
+#include <errno.h>
 
 static PSProxyServer *gServer;
 
@@ -39,23 +44,76 @@ int main(int argc, char *argv[])
     signal(SIGPIPE, SIG_IGN);
 
     @autoreleasepool {
+        // ---- 自检模式：psd --selftest ----
+        if (argc > 1 && strcmp(argv[1], "--selftest") == 0) {
+            fprintf(stderr, "=== psd 自检 ===\n");
+
+            // 1) 目录写权限
+            mkdir("/var/mobile/Library/ProxyShare", 0755);
+            FILE *t = fopen("/var/mobile/Library/ProxyShare/_selftest", "w");
+            if (t) { fputs("ok\n", t); fclose(t); unlink("/var/mobile/Library/ProxyShare/_selftest"); }
+            fprintf(stderr, "目录可写: %s\n", t ? "是" : "否");
+
+            // 2) 日志写入
+            PSLog(@"自检日志测试");
+            FILE *lg = fopen("/var/mobile/Library/ProxyShare/proxy.log", "r");
+            fprintf(stderr, "proxy.log 可读: %s\n", lg ? "是" : "否");
+            if (lg) fclose(lg);
+
+            // 3) 配置读取
+            fprintf(stderr, "配置 enabled=%d socks=%ld http=%ld bind=%s\n",
+                    PSConfigBool(@"enabled", YES),
+                    (long)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT),
+                    (long)PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT),
+                    PSConfigString(@"bindAddress", PS_DEFAULT_BIND).UTF8String);
+
+            // 4) 逐端口试 bind，找出哪个能听
+            int ports[] = { 1086, 8118, 47680, 47681, 38086, 0 };
+            for (int i = 0; ports[i]; i++) {
+                int fd = socket(AF_INET, SOCK_STREAM, 0);
+                int one = 1;
+                setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+                struct sockaddr_in a;
+                memset(&a, 0, sizeof(a));
+                a.sin_family = AF_INET;
+                a.sin_addr.s_addr = htonl(INADDR_ANY);
+                a.sin_port = htons((uint16_t)ports[i]);
+                int r = bind(fd, (struct sockaddr *)&a, sizeof(a));
+                fprintf(stderr, "bind :%d -> %s%s%s\n", ports[i], r == 0 ? "成功" : "失败",
+                        r == 0 ? "" : " (", r == 0 ? "" : strerror(errno));
+                close(fd);
+            }
+            fprintf(stderr, "=== 自检结束 ===\n");
+            return 0;
+        }
+
         // 先无条件写一条到 stderr，确认进程真的起来了
         fprintf(stderr, "[psd] main() entered, pid=%d\n", getpid());
         fflush(stderr);
-
         mkdir("/var/mobile/Library/ProxyShare", 0755);
 
         // 首次运行：写默认配置（不覆盖已有）
-        if (access("/var/mobile/Library/ProxyShare/config.plist", F_OK) != 0) {
-            NSDictionary *def = @{
-                @"enabled"     : @YES,
-                @"socksPort"   : @(PS_DEFAULT_SOCKS_PORT),
-                @"httpPort"    : @(PS_DEFAULT_HTTP_PORT),
-                @"bindAddress" : PS_DEFAULT_BIND,
-            };
-            [def writeToFile:@"/var/mobile/Library/ProxyShare/config.plist" atomically:YES];
-            chmod("/var/mobile/Library/ProxyShare/config.plist", 0644);
-            fprintf(stderr, "[psd] 已生成默认 config.plist\n");
+        // 注意：RootHide 下 access() 对某些路径可能失效，改用 fopen 试探
+        {
+            const char *cfgPath = "/var/mobile/Library/ProxyShare/config.plist";
+            BOOL exists = NO;
+            FILE *probe = fopen(cfgPath, "r");
+            if (probe) { exists = YES; fclose(probe); }
+
+            if (!exists) {
+                NSDictionary *def = @{
+                    @"enabled"     : @YES,
+                    @"socksPort"   : @(PS_DEFAULT_SOCKS_PORT),
+                    @"httpPort"    : @(PS_DEFAULT_HTTP_PORT),
+                    @"bindAddress" : PS_DEFAULT_BIND,
+                };
+                BOOL ok = [def writeToFile:@"/var/mobile/Library/ProxyShare/config.plist"
+                                 atomically:YES];
+                chmod(cfgPath, 0644);
+                fprintf(stderr, "[psd] 生成默认 config.plist: %s\n", ok ? "成功" : "失败");
+            } else {
+                fprintf(stderr, "[psd] 已有 config.plist，保持不动\n");
+            }
         }
 
         PSLog(@"===== ProxyShare 守护进程启动 (pid %d) =====", getpid());

@@ -1,6 +1,9 @@
 #import "PSCommon.h"
 #import <sys/stat.h>
 #import <pthread.h>
+#include <string.h>
+#include <errno.h>
+#include <stdio.h>
 
 // ---------------------------------------------------------------- 配置
 
@@ -73,7 +76,7 @@ void PSWriteState(NSDictionary *state)
 
 // ---------------------------------------------------------------- 日志
 
-// 写文件日志：用 append 模式，避免每次读入整个文件
+// 用纯 C 实现，避免 ARC / autoreleasepool 在 launchd 早期环境下的坑
 void PSLog(NSString *fmt, ...)
 {
     va_list ap;
@@ -86,22 +89,23 @@ void PSLog(NSString *fmt, ...)
     NSString *line = [NSString stringWithFormat:@"%@  %@\n",
                       [df stringFromDate:[NSDate date]], msg];
 
-    // stderr（launchd 会写进 StandardErrorPath）
-    fputs(line.UTF8String, stderr);
+    const char *utf8 = line.UTF8String;
+
+    // stderr
+    fputs(utf8, stderr);
     fflush(stderr);
 
-    // 文件日志：append 模式，进程级互斥
+    // 文件：纯 C，append 模式
     static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&m);
-    @autoreleasepool {
-        mkdir("/var/mobile/Library/ProxyShare", 0755);
-
-        FILE *fp = fopen("/var/mobile/Library/ProxyShare/proxy.log", "a");
-        if (fp) {
-            fputs(line.UTF8String, fp);
-            fclose(fp);
-            chmod("/var/mobile/Library/ProxyShare/proxy.log", 0644);
-        }
+    FILE *fp = fopen("/var/mobile/Library/ProxyShare/proxy.log", "a");
+    if (fp) {
+        fputs(utf8, fp);
+        fclose(fp);
+    } else {
+        // 日志文件打不开时，把原因写到 stderr（至少不丢信息）
+        fprintf(stderr, "[psd] 无法写 proxy.log: %s\n", strerror(errno));
+        fflush(stderr);
     }
     pthread_mutex_unlock(&m);
 }
