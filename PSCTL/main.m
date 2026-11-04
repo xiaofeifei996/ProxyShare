@@ -26,7 +26,8 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
-#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+#define DAEMON_PLIST      @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+#define DAEMON_PLIST_CSTR "/Library/LaunchDaemons/com.axs.proxyshare.plist"
 #define LABEL        @"com.axs.proxyshare"
 #define SVC_DOMAIN   "system"
 #define SHARE_DIR    @"/var/tmp/ProxyShare"
@@ -91,13 +92,13 @@ static int RunCtl(const char *const argv[])
 
 static int DoRestart(void)
 {
-    const char *bootout[] = { "launchctl", "bootout", SVC_DOMAIN, DAEMON_PLIST, NULL };
+    const char *bootout[] = { "launchctl", "bootout", SVC_DOMAIN, DAEMON_PLIST_CSTR, NULL };
     RunCtl(bootout);
     usleep(400 * 1000);
-    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, DAEMON_PLIST, NULL };
+    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, DAEMON_PLIST_CSTR, NULL };
     int rc = RunCtl(boot);
     if (rc != 0) {
-        const char *load[] = { "launchctl", "load", "-w", DAEMON_PLIST, NULL };
+        const char *load[] = { "launchctl", "load", "-w", DAEMON_PLIST_CSTR, NULL };
         rc = RunCtl(load);
     }
     return rc;
