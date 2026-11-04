@@ -102,11 +102,12 @@ cp control "$STAGE/DEBIAN/control"
 sed -i.bak "s/^Version:.*/Version: ${VERSION}/" "$STAGE/DEBIAN/control"
 rm -f "$STAGE/DEBIAN/control.bak"
 cp DEBIAN/postinst "$STAGE/DEBIAN/postinst"
-cp DEBIAN/prerm "$STAGE/DEBIAN/prerm"
+cp DEBIAN/prerm    "$STAGE/DEBIAN/prerm"
+cp DEBIAN/postrm   "$STAGE/DEBIAN/postrm"
 
 find "$STAGE" -type d -exec chmod 0755 {} \;
 find "$STAGE" -type f -name "*.plist" -exec chmod 0644 {} \;
-chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
+chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm" "$STAGE/DEBIAN/postrm"
 chmod 0755 "$STAGE/usr/libexec/psd" "$STAGE/usr/libexec/psd-launcher"
 
 [ -f "$STAGE/DEBIAN/control" ] || { echo "错误: control 缺失" >&2; exit 1; }

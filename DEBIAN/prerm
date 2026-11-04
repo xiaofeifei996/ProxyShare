@@ -1,13 +1,17 @@
 #!/bin/bash
-# 卸载前：停守护进程、清理
-set -e
+# 卸载前：停守护进程
+# 注意：不要用 set -e，卸载过程任何一步失败都不应中断，
+# 否则 dpkg 会留下半卸载状态（文件在、dpkg 记录也还在）。
 
 DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
+
 launchctl bootout system "$DAEMON" 2>/dev/null || true
 launchctl unload -w "$DAEMON" 2>/dev/null || true
 
-# 软链接（保留用户数据，只删链接）
-rm -f /var/mobile/Library/ProxyShare 2>/dev/null || true
+# 保险：直接杀进程
+killall -9 psd 2>/dev/null || true
 
-echo "[ProxyShare] 已停止（配置与日志保留在 /var/tmp/ProxyShare）"
+rm -f "$DAEMON" 2>/dev/null || true
+
+echo "[ProxyShare] 已停止"
 exit 0

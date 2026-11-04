@@ -1,0 +1,28 @@
+#!/bin/bash
+# 卸载后：彻底清理残留文件
+# 同样不用 set -e——这里每一步失败都不该阻止后续清理。
+
+echo "[ProxyShare] 清理中..."
+
+# 再停一次，防止 prerm 阶段没停干净
+launchctl bootout system /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null || true
+killall -9 psd 2>/dev/null || true
+
+# 二进制
+rm -f /usr/bin/psctl            2>/dev/null || true
+rm -f /usr/libexec/psd          2>/dev/null || true
+rm -f /usr/libexec/psd-launcher 2>/dev/null || true
+
+# LaunchDaemon（prerm 可能没删掉）
+rm -f /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null || true
+
+# 设置面板
+rm -rf /Library/PreferenceBundles/ProxySharePrefs 2>/dev/null || true
+rm -f /Library/PreferenceLoader/Preferences/ProxyShare.plist 2>/dev/null || true
+
+# 用户数据目录（配置、日志、状态）
+rm -rf /var/tmp/ProxyShare 2>/dev/null || true
+rm -f /var/mobile/Library/ProxyShare 2>/dev/null || true
+
+echo "[ProxyShare] 已完全卸载"
+exit 0
