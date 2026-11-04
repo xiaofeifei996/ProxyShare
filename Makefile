@@ -11,5 +11,6 @@ psd_FRAMEWORKS = Foundation
 psd_CFLAGS = -fobjc-arc -I Sources -O2 -Wall
 psd_LDFLAGS = -lobjc
 psd_INSTALL_PATH = /usr/libexec
+psd_CODESIGN_FLAGS = -Spsd.entitlements
 
 include $(THEOS_MAKE_PATH)/tool.mk

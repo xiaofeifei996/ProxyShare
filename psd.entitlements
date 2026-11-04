@@ -2,7 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 关键：脱离 App 沙盒容器，否则 /Library、/var 等路径全部 Operation not permitted -->
 	<key>platform-application</key>
 	<true/>
 	<key>com.apple.private.security.container-required</key>
@@ -12,16 +11,6 @@
 	<key>com.apple.private.security.storage.AppBundles</key>
 	<true/>
 	<key>com.apple.private.security.storage.AppDataContainers</key>
-	<true/>
-
-	<!-- 允许监听端口 / 建立出站连接 -->
-	<key>com.apple.security.network.server</key>
-	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
-
-	<!-- 后台常驻 -->
-	<key>com.apple.private.launchd.allow-unauthorized-kexts</key>
 	<true/>
 </dict>
 </plist>
