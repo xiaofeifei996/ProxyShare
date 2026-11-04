@@ -1,6 +1,7 @@
 #!/bin/bash
 # 安装后：准备目录、注册守护进程、刷新设置面板
-set -e
+# 注意：不加 set -e —— RootHide 下某些步骤（如 launchctl）可能失败，
+# 不应因此中断后续的清理/补写工作。
 
 SHARE=/var/tmp/ProxyShare
 DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
@@ -37,6 +38,38 @@ fi
 
 # 让设置面板立刻出现（重启 Settings 会自动重新扫描 PreferenceLoader）
 killall -9 Preferences 2>/dev/null || true
+
+# 保险：某些 RootHide 环境下 dpkg 解包会跳过 PreferenceLoader 下的文件，
+# 这里显式确认入口存在，缺失就从 bundle 旁边补一份。
+ENTRY=/Library/PreferenceLoader/Preferences/ProxyShare.plist
+if [ ! -f "$ENTRY" ]; then
+  mkdir -p /Library/PreferenceLoader/Preferences
+  cat > "$ENTRY" <<'ENTRYPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>bundle</key>
+		<string>ProxySharePrefs</string>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>detail</key>
+		<string>PSShareController</string>
+		<key>icon</key>
+		<string>icon.png</string>
+		<key>isController</key>
+		<string>1</string>
+		<key>label</key>
+		<string>ProxyShare</string>
+	</dict>
+</dict>
+</plist>
+ENTRYPLIST
+  chmod 0644 "$ENTRY"
+  echo "[ProxyShare] 已补写设置入口"
+fi
 
 echo "[ProxyShare] 安装完成"
 echo "  数据目录: $SHARE"

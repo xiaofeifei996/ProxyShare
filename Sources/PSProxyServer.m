@@ -57,11 +57,12 @@ static ssize_t PSReadFull(int fd, void *buf, size_t want, int timeoutSec)
 }
 
 // 非阻塞 connect + 超时（走系统路由，因而走 VPN 隧道）
-static int PSConnectWithTimeout(const char *host, uint16_t port, int timeoutSec)
+// 先尝试 IPv4，失败再回退 IPv6。
+static int PSConnectFamily(int family, const char *host, uint16_t port, int timeoutSec)
 {
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family   = AF_UNSPEC;
+    hints.ai_family   = family;
     hints.ai_socktype = SOCK_STREAM;
 
     char portstr[8];
@@ -100,8 +101,21 @@ static int PSConnectWithTimeout(const char *host, uint16_t port, int timeoutSec)
     }
 
     freeaddrinfo(res);
-    if (fd < 0)
+    return fd;
+}
+
+static int PSConnectWithTimeout(const char *host, uint16_t port, int timeoutSec)
+{
+    // 优先 IPv4：不少 VPN/代理只接管 IPv4，走 IPv6 会绕过隧道导致超时
+    int fd = PSConnectFamily(AF_INET, host, port, timeoutSec);
+    if (fd < 0) {
+        // 回退 IPv6（目标只有 AAAA 记录时）
+        fd = PSConnectFamily(AF_INET6, host, port, timeoutSec);
+    }
+    if (fd < 0) {
         PSSharedStats().lastError = [NSString stringWithFormat:@"连接失败 %s:%u", host, port];
+        return -1;
+    }
 
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
