@@ -24,11 +24,9 @@ make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" DEBUG=0 2>&1 | tail -40
 
 # 子项目构建，产物路径不固定，逐个查找
 THEOS_PSD="$(find .theos -type f -name psd   -not -path '*.dSYM*' 2>/dev/null | head -1)"
-THEOS_PSCTL="$(find .theos -type f -name psctl -not -path '*.dSYM*' 2>/dev/null | head -1)"
-echo "psd   = ${THEOS_PSD:-未找到}"
-echo "psctl = ${THEOS_PSCTL:-未找到}"
-if [ -z "$THEOS_PSD" ] || [ -z "$THEOS_PSCTL" ]; then
-    echo "错误: 构建产物缺失" >&2
+echo "psd = ${THEOS_PSD:-未找到}"
+if [ -z "$THEOS_PSD" ]; then
+    echo "错误: psd 未生成" >&2
     exit 1
 fi
 
@@ -43,7 +41,6 @@ cp -R layout/* "$STAGE/"
 
 mkdir -p "$STAGE/usr/libexec" "$STAGE/usr/bin"
 cp "$THEOS_PSD" "$STAGE/usr/libexec/psd"
-cp "$THEOS_PSCTL" "$STAGE/usr/bin/psctl"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 安装设置面板 bundle
@@ -90,9 +87,6 @@ fi
 chmod 0755 "$STAGE/usr/libexec/psd"
 
 chmod 0755 "$STAGE/usr/bin/psctl"
-if command -v codesign >/dev/null 2>&1; then
-    codesign --force --sign - "$STAGE/usr/bin/psctl" 2>&1 | head -2 || true
-fi
 
 # 面板也要签名（否则 Settings 拒绝加载）
 if [ -d "$STAGE/Library/PreferenceBundles/ProxySharePrefs" ]; then

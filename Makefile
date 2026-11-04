@@ -4,6 +4,6 @@ INSTALL_TARGET_PROCESSES =
 
 include $(THEOS)/makefiles/common.mk
 
-SUBPROJECTS += psd psctl prefs
+SUBPROJECTS += psd prefs
 
 include $(THEOS_MAKE_PATH)/aggregate.mk

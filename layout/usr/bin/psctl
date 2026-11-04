@@ -1,0 +1,156 @@
+#!/var/jb/usr/bin/bash
+# psctl — ProxyShare 管理工具
+#
+# 用 shell 实现：bash 在 RootHide 下被 patch 过，能看到真实的
+# /Library/LaunchDaemons，因此改配置必须走 shell，不能用编译的二进制
+# （编译出来的进程 /Library 会被 dyldhook 重定向，且写操作被沙盒拦截）。
+
+set -u
+
+PLIST="/Library/LaunchDaemons/com.axs.proxyshare.plist"
+
+die() { echo "$*" >&2; exit 1; }
+[ -f "$PLIST" ] || die "找不到 $PLIST（未安装？）"
+
+usage() {
+  cat <<EOF
+psctl — ProxyShare 管理工具
+
+  psctl status              查看配置与进程状态
+  psctl set socks <端口>    改 SOCKS5 端口
+  psctl set http  <端口>    改 HTTP 端口
+  psctl set bind  <地址>    改绑定地址
+  psctl acl <列表>          设白名单，如 192.168.1.0/24,10.0.0.5
+  psctl acl off             关闭白名单
+  psctl restart             重启（应用改动）
+  psctl on | off            启用 / 禁用
+
+例：sudo psctl set socks 47690 && sudo psctl restart
+EOF
+}
+
+# 读取某个 flag 后面的值
+get_arg() {
+  awk -v f="<string>$1</string>" '
+    index($0, f) { found=1; next }
+    found {
+      if (match($0, /<string>[^<]*<\/string>/)) {
+        s = substr($0, RSTART, RLENGTH)
+        gsub(/<\/?string>/, "", s)
+        print s; exit
+      }
+    }
+  ' "$PLIST"
+}
+
+# 删除某 flag 及其值（连续两行）
+del_arg() {
+  local flag="<string>$1</string>"
+  awk -v f="$flag" '
+    skip_next && /<string>/ { skip_next=0; next }
+    index($0, f) { skip_next=1; next }
+    { print }
+  ' "$PLIST" > "$PLIST.tmp"
+  mv "$PLIST.tmp" "$PLIST"
+  chmod 0644 "$PLIST"
+}
+
+# 设置 flag=value：存在则替换值，不存在则追加到 </array> 前
+set_arg() {
+  local flag="<string>$1</string>"
+  local value="$2"
+
+  if grep -qF "$flag" "$PLIST"; then
+    # 替换紧随其后的值行
+    awk -v f="$flag" -v v="$value" '
+      nextval && /<string>/ {
+        sub(/<string>[^<]*<\/string>/, "<string>" v "</string>")
+        nextval=0
+      }
+      index($0, f) { nextval=1 }
+      { print }
+    ' "$PLIST" > "$PLIST.tmp"
+  else
+    # 在 </array> 前插入
+    awk -v f="$flag" -v v="$value" '
+      /<\/array>/ && !done {
+        print "\t\t" f
+        print "\t\t<string>" v "</string>"
+        done=1
+      }
+      { print }
+    ' "$PLIST" > "$PLIST.tmp"
+  fi
+  mv "$PLIST.tmp" "$PLIST"
+  chmod 0644 "$PLIST"
+  echo "已设置 $1 = $2"
+}
+
+# 校验 plist 语法
+validate() {
+  if command -v plutil >/dev/null 2>&1; then
+    plutil -lint "$PLIST" >/dev/null 2>&1 || die "plist 格式损坏，请重装插件"
+  fi
+}
+
+do_restart() {
+  validate
+  launchctl bootout system "$PLIST" 2>/dev/null
+  sleep 1
+  launchctl bootstrap system "$PLIST" 2>/dev/null \
+    || launchctl load -w "$PLIST" 2>/dev/null
+  echo "已重启"
+}
+
+case "${1:-}" in
+  status)
+    echo "配置文件 : $PLIST"
+    s=$(get_arg --socks); [ -n "$s" ] && echo "SOCKS5   : $s" || echo "SOCKS5   : 47680(默认)"
+    h=$(get_arg --http);  [ -n "$h" ] && echo "HTTP     : $h" || echo "HTTP     : 47681(默认)"
+    b=$(get_arg --bind);  [ -n "$b" ] && echo "绑定     : $b" || echo "绑定     : 0.0.0.0(默认)"
+    a=$(get_arg --acl);   [ -n "$a" ] && echo "白名单   : $a" || echo "白名单   : 未启用"
+    if grep -qF '<string>--off</string>' "$PLIST"; then
+      echo "开关     : 已禁用"
+    else
+      echo "开关     : 已启用"
+    fi
+    if launchctl list 2>/dev/null | grep -q "com.axs.proxyshare"; then
+      echo "进程     : 运行中"
+    else
+      echo "进程     : 未运行"
+    fi
+    ;;
+  set)
+    [ $# -ge 3 ] || die "用法: psctl set <socks|http|bind> <值>"
+    case "$2" in
+      socks) set_arg --socks "$3" ;;
+      http)  set_arg --http  "$3" ;;
+      bind)  set_arg --bind  "$3" ;;
+      *) die "未知字段: $2（可选 socks / http / bind）" ;;
+    esac
+    echo "执行 sudo psctl restart 生效"
+    ;;
+  acl)
+    [ $# -ge 2 ] || die "用法: psctl acl <列表> | off"
+    if [ "$2" = "off" ]; then
+      del_arg --acl
+      echo "白名单已关闭"
+    else
+      set_arg --acl "$2"
+    fi
+    echo "执行 sudo psctl restart 生效"
+    ;;
+  restart) do_restart ;;
+  on)
+    del_arg --off
+    do_restart
+    echo "已启用"
+    ;;
+  off)
+    set_arg --off 1
+    do_restart
+    echo "已禁用"
+    ;;
+  ""|-h|help) usage ;;
+  *) usage; exit 1 ;;
+esac
