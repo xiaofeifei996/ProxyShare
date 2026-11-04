@@ -87,31 +87,50 @@ static NSMutableDictionary *LoadPlist(void)
     return m;
 }
 
-// 直接写 jbroot 内的 plist 常被系统保护（Operation not permitted）。
-// /bin/bash 被 RootHide patch 过，看到的是真实 /Library，因此
-// 先写临时文件，再交给 bash 复制过去。
+// 直接写 jbroot 内的 plist 常被系统保护；psctl 自己的 /var/tmp 又落在
+// 独立沙盒里，bash 看不到。所以走**管道**：把 plist 内容喂给 bash 的 stdin，
+// 由 bash（被 RootHide patch 过，/Library 是真实路径）写到目标位置。
 static BOOL SavePlist(NSDictionary *d)
 {
-    NSString *tmp = @"/var/tmp/.proxyshare_daemon.plist";
-    if (![d writeToFile:tmp atomically:YES]) return NO;
-    chmod(tmp.fileSystemRepresentation, 0644);
+    NSData *xml = [NSPropertyListSerialization dataWithPropertyList:d
+                                                             format:NSPropertyListXMLFormat_v1_0
+                                                            options:0
+                                                              error:NULL];
+    if (!xml.length) return NO;
+
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return NO;
 
     NSString *target = @"/Library/LaunchDaemons/com.axs.proxyshare.plist";
-    NSString *cmd = [NSString stringWithFormat:@"/bin/cp -f '%@' '%@'", tmp, target];
+    NSString *cmd = [NSString stringWithFormat:@"cat > '%@' && chmod 0644 '%@'",
+                     target, target];
 
     pid_t pid = fork();
     if (pid == 0) {
+        // 子进程：stdin 换成管道读端
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
         execl("/bin/bash", "bash", "-c", cmd.UTF8String, (char *)NULL);
         _exit(127);
     }
-    if (pid < 0) return NO;
+    close(pipefd[0]);
+    if (pid < 0) { close(pipefd[1]); return NO; }
+
+    const char *bytes = xml.bytes;
+    size_t total = xml.length, off = 0;
+    while (off < total) {
+        ssize_t w = write(pipefd[1], bytes + off, total - off);
+        if (w <= 0) break;
+        off += (size_t)w;
+    }
+    close(pipefd[1]);
+
     int st = 0;
     waitpid(pid, &st, 0);
     BOOL ok = WIFEXITED(st) && WEXITSTATUS(st) == 0;
-    unlink(tmp.fileSystemRepresentation);
 
-    // 让后续读取走真实路径
-    gPlistPath = target;
+    if (ok) gPlistPath = target;   // 后续读写走真实路径
     return ok;
 }
 
