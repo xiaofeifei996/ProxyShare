@@ -53,15 +53,16 @@ static NSArray *PSPrefsCandidates(void)
 
 static id PSConfigFromFile(NSString *key)
 {
-    // 1) 专用配置文件（启动参数未覆盖时用）
-    NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
-    if (cfg && cfg[key]) return cfg[key];
-
-    // 2) 设置面板写入的偏好（含 RootHide 的 AppGroup 真实路径）
+    // 1) 设置面板写入的偏好**优先**——这是用户刚在界面上改的值，
+    //    必须盖过下面 config.plist 里的历史值，否则关开关没反应。
     for (NSString *p in PSPrefsCandidates()) {
         NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
         if ([d isKindOfClass:[NSDictionary class]] && d[key]) return d[key];
     }
+
+    // 2) 专用配置文件（psctl 写的 / 首次运行的默认值）
+    NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
+    if (cfg && cfg[key]) return cfg[key];
 
     // 3) cfprefsd
     CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
