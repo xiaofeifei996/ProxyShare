@@ -1,17 +1,26 @@
 #!/bin/bash
 # 卸载前：停守护进程
-# 注意：不要用 set -e，卸载过程任何一步失败都不应中断，
-# 否则 dpkg 会留下半卸载状态（文件在、dpkg 记录也还在）。
+#
+# 同 postrm：dpkg 覆盖安装时也会调用本脚本并传 "upgrade <old> <new>"。
+# 升级时**不要删 LaunchDaemon**，否则新版本启动不了。
 
-DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
+ACTION="$1"
 
-launchctl bootout system "$DAEMON" 2>/dev/null || true
-launchctl unload -w "$DAEMON" 2>/dev/null || true
+case "$ACTION" in
+    upgrade|failed-upgrade|disappear)
+        echo "[ProxyShare] 升级中，仅停止服务"
+        launchctl bootout system /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null
+        killall -9 psd 2>/dev/null
+        exit 0
+        ;;
+esac
 
-# 保险：直接杀进程
-killall -9 psd 2>/dev/null || true
+# 真正卸载
+launchctl bootout system /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null
+launchctl unload -w /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null
+killall -9 psd 2>/dev/null
 
-rm -f "$DAEMON" 2>/dev/null || true
+rm -f /Library/LaunchDaemons/com.axs.proxyshare.plist 2>/dev/null
 
 echo "[ProxyShare] 已停止"
 exit 0
