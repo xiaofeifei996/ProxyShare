@@ -33,10 +33,9 @@ static NSArray *PSPrefsCandidatesRaw(void)
     dispatch_once(&once, ^{
         NSMutableArray *arr = [NSMutableArray array];
 
-        // 常规路径（非 RootHide 环境）
-        [arr addObject:@"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
-
-        // RootHide：扫 AppGroup 下的 .jbroot-* 目录
+        // **AppGroup 优先**——这是设置面板真正写入的位置。
+        // 之前把它排在 /var/mobile/... 之后，而后者常常残留着旧值
+        // （cfprefsd 缓存回写），导致开关明明打开却读到 false。
         NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
         NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base
                                                                             error:NULL];
@@ -51,6 +50,10 @@ static NSArray *PSPrefsCandidatesRaw(void)
             }
             [arr addObject:p];
         }
+
+        // 常规路径放最后（非 RootHide 环境才有效，RootHide 下多为旧值）
+        [arr addObject:@"/private/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
+        [arr addObject:@"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
 
         cached = arr;
     });
@@ -68,6 +71,27 @@ static NSArray *PSPrefsCandidates(void)
         }
     }
     return list;
+}
+
+// 在候选偏好文件中挑「修改时间最新」的那份，代表用户最后一次操作
+static NSDictionary *PSNewestPrefsDict(void)
+{
+    NSDictionary *best = nil;
+    NSTimeInterval bestTime = -1;
+
+    for (NSString *p in PSPrefsCandidates()) {
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:p error:NULL];
+        if (!attrs) continue;
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
+        if (![d isKindOfClass:[NSDictionary class]]) continue;
+
+        NSTimeInterval t = [attrs[NSFileModificationDate] timeIntervalSince1970];
+        if (t > bestTime) {
+            bestTime = t;
+            best = d;
+        }
+    }
+    return best;
 }
 
 static id PSConfigFromFile(NSString *key)
@@ -106,6 +130,24 @@ static id PSConfigValue(NSString *key)
 
 BOOL PSConfigBool(NSString *key, BOOL def)
 {
+    // 多个来源可能不一致（RootHide 下 /var/mobile/... 会残留 cfprefsd 回写的旧值）。
+    // 取**修改时间最新的那份**，它才代表用户最后一次的操作。
+    if ([key isEqualToString:@"enabled"]) {
+        pthread_mutex_lock(&gCfgMutex);
+        PSConfigEnsureMem();
+        id mem = gMemConfig[key];
+        pthread_mutex_unlock(&gCfgMutex);
+        if (mem) return [mem boolValue];
+
+        NSDictionary *newest = PSNewestPrefsDict();
+        if (newest && newest[key]) return [newest[key] boolValue];
+
+        NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
+        if (cfg[key]) return [cfg[key] boolValue];
+
+        return def;
+    }
+
     id v = PSConfigValue(key);
     if (!v) return def;
     if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];

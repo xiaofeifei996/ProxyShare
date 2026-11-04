@@ -159,36 +159,6 @@ int main(int argc, char *argv[])
         if (argHttp  > 0) PSConfigSet(@"httpPort",  @(argHttp));
         if (argCtrl  > 0) PSConfigSet(@"ctrlPort",  @(argCtrl));
 
-        // ---- 配置来源诊断（定位「开关开了但服务不启动」）----
-        {
-            fprintf(stderr, "[DIAG] 配置读取链:\n");
-            const char *cands[] = {
-                "/var/mobile/Library/Preferences/com.axs.proxyshare.plist",
-                "/private/var/mobile/Library/Preferences/com.axs.proxyshare.plist",
-                NULL
-            };
-            for (int i = 0; cands[i]; i++) {
-                NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:@(cands[i])];
-                fprintf(stderr, "[DIAG]   %s -> %s\n", cands[i],
-                        d ? [[d description] UTF8String] : "读不到");
-            }
-            NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
-            NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base error:NULL];
-            for (NSString *dd in dirs) {
-                if (![dd hasPrefix:@".jbroot-"]) continue;
-                NSString *p = [NSString stringWithFormat:
-                    @"%@/%@/var/mobile/Library/Preferences/com.axs.proxyshare.plist", base, dd];
-                NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
-                fprintf(stderr, "[DIAG]   %s -> %s\n", p.UTF8String,
-                        d ? [[d description] UTF8String] : "读不到");
-            }
-            NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
-            fprintf(stderr, "[DIAG]   config.plist -> %s\n",
-                    cfg ? [[cfg description] UTF8String] : "读不到");
-            fprintf(stderr, "[DIAG]   PSConfigBool(enabled) = %d\n",
-                    PSConfigBool(@"enabled", YES));
-        }
-
         BOOL startEnabled = PSConfigBool(@"enabled", YES);
         if (argDisable || !startEnabled) {
             // 不退出进程——保持常驻，等待面板把开关打开。
