@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
+#include <dirent.h>
 
 static PSProxyServer *gServer;
 
@@ -60,15 +61,45 @@ int main(int argc, char *argv[])
                 NULL
             };
             for (int i = 0; cands[i]; i++) {
-                mkdir(cands[i], 0777);
+                int mk = mkdir(cands[i], 0777);
+                int mkErr = errno;
                 snprintf(probePath, sizeof(probePath), "%s/_st", cands[i]);
                 FILE *t = fopen(probePath, "w");
-                fprintf(stderr, "目录 %-42s -> %s%s%s\n", cands[i],
-                        t ? "可写" : "不可写",
-                        t ? "" : " (", t ? "" : strerror(errno));
+                int opErr = errno;
+                fprintf(stderr, "目录 %-42s mkdir=%d(%s) fopen=%s(%s)\n",
+                        cands[i], mk, strerror(mkErr),
+                        t ? "ok" : "fail", t ? "-" : strerror(opErr));
                 if (t) { fclose(t); unlink(probePath); }
             }
             fprintf(stderr, "当前 PS_STATE_DIR = %s\n", PS_STATE_DIR_C);
+
+            // 2) 看看这个进程眼中的根目录长什么样
+            fprintf(stderr, "--- psd 视角的 / ---\n");
+            DIR *d = opendir("/");
+            if (d) {
+                struct dirent *e;
+                int n = 0;
+                while ((e = readdir(d)) && n < 30) {
+                    fprintf(stderr, "  %s\n", e->d_name);
+                    n++;
+                }
+                closedir(d);
+            } else {
+                fprintf(stderr, "  无法打开 /: %s\n", strerror(errno));
+            }
+            fprintf(stderr, "--- psd 视角的 /Library ---\n");
+            d = opendir("/Library");
+            if (d) {
+                struct dirent *e;
+                int n = 0;
+                while ((e = readdir(d)) && n < 20) {
+                    fprintf(stderr, "  %s\n", e->d_name);
+                    n++;
+                }
+                closedir(d);
+            } else {
+                fprintf(stderr, "  无法打开 /Library: %s\n", strerror(errno));
+            }
 
             // 2) 日志写入
             PSLog(@"自检日志测试");
