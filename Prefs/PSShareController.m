@@ -78,10 +78,10 @@ static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.
         m[@"error"] = [tried componentsJoinedByString:@"\n"];
     }
 
-    // 进程状态：直接看 launchctl 结果（mobile 可执行）
+    // 先落 cfg，再探测端口（探测需要知道端口号）
+    self.cfg = m;
     m[@"proc"] = [self daemonRunning] ? @"运行中" : @"未运行";
 
-    self.cfg = m;
     [self reloadSpecifiers];
 }
 
@@ -102,14 +102,42 @@ static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.
 }
 
 - (BOOL)daemonRunning {
-    // 用 launchctl list 判断（mobile 有权限执行）
-    FILE *fp = popen("/bin/launchctl list 2>/dev/null | /usr/bin/grep -c proxyshare", "r");
-    if (!fp) return NO;
-    char buf[32] = {0};
-    BOOL found = NO;
-    if (fgets(buf, sizeof(buf), fp)) found = (atoi(buf) > 0);
-    pclose(fp);
-    return found;
+    // 直接用 connect() 探测端口——这是最可靠的方式：
+    // 不受 popen/沙盒影响，而且能真正验证服务是否在工作。
+    NSString *portStr = self.cfg[@"socks"] ?: @"47680";
+    int port = [portStr intValue];
+    if (port <= 0) port = 47680;
+
+    // 先试回环（同机器一定可达）
+    if ([self canConnectTo:@"127.0.0.1" port:port]) return YES;
+
+    // 再试本机局域网 IP
+    NSString *ip = self.cfg[@"ip"];
+    if (ip.length && [self canConnectTo:ip port:port]) return YES;
+
+    return NO;
+}
+
+- (BOOL)canConnectTo:(NSString *)host port:(int)port {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NO;
+
+    struct timeval tv = { 1, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    if (inet_pton(AF_INET, host.UTF8String, &a.sin_addr) != 1) {
+        close(fd);
+        return NO;
+    }
+
+    BOOL ok = (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0);
+    close(fd);
+    return ok;
 }
 
 - (NSString *)valueAfterFlag:(NSString *)flag in:(NSArray *)args {
