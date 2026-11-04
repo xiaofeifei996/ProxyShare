@@ -2,77 +2,84 @@
 //  psctl — ProxyShare 命令行管理工具
 //
 //  用法（需要 root）：
-//    psctl status                      查看状态
-//    psctl set socks 47690             改 SOCKS 端口
-//    psctl set http  47691             改 HTTP 端口
-//    psctl set bind  0.0.0.0           改绑定地址
-//    psctl acl on                      开启白名单
-//    psctl acl off                     关闭白名单
-//    psctl acl add 192.168.1.0/24      加一条规则
-//    psctl acl del 192.168.1.0/24      删一条规则
-//    psctl acl list                    列出规则
-//    psctl restart                     重启守护进程（应用改动）
-//    psctl stop / start                停止 / 启动
+//    psctl status              查看状态与端口
+//    psctl set socks <端口>    改 SOCKS5 端口
+//    psctl set http  <端口>    改 HTTP 端口
+//    psctl set bind  <地址>    改绑定地址
+//    psctl restart             重启守护进程（应用改动）
+//    psctl on | off            启用 / 禁用
 //
-//  原理：直接改写 LaunchDaemon plist 的 ProgramArguments，再交给 launchctl 重启。
-//  这是 RootHide 下唯一可靠的配置通道（不依赖任何共享文件系统）。
+//  原理：改写 LaunchDaemon plist 的 ProgramArguments，再交给 launchctl 重启。
+//  这是 RootHide 下唯一可靠的配置通道（root 与 mobile 文件系统/网络栈均隔离）。
 //
 
 #import <Foundation/Foundation.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <limits.h>
+#include <mach-o/dyld.h>
 
-#define DAEMON_PLIST      @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
-#define DAEMON_PLIST_CSTR "/Library/LaunchDaemons/com.axs.proxyshare.plist"
 #define LABEL        @"com.axs.proxyshare"
 #define SVC_DOMAIN   "system"
-#define SHARE_DIR    @"/var/tmp/ProxyShare"
+#define PLIST_REL    @"Library/LaunchDaemons/com.axs.proxyshare.plist"
 
 static NSString *gPlistPath = nil;
 
-// RootHide 下不同进程看到的 /Library 可能不同，
-// 依次尝试：jbroot 真实路径 → 原始路径
+// 从自身可执行路径倒推 jbroot：
+//   <jbroot>/usr/bin/psctl  ->  <jbroot>/Library/LaunchDaemons/xxx.plist
+// RootHide 的 dyldhook 会把 /Library 重定向到 .jbroot-XXXX/Library，
+// 所以只有按自身路径推导才可靠。
 static NSString *ResolvePlistPath(void)
 {
     NSMutableArray *cands = [NSMutableArray array];
 
-    // 1) 通过 /var/jb 解析出 jbroot 真身
-    char buf[PATH_MAX] = {0};
-    ssize_t n = readlink("/var/jb", buf, sizeof(buf) - 1);
-    if (n > 0) {
-        buf[n] = 0;
-        if (strcmp(buf, "/") != 0) {
-            [cands addObject:[NSString stringWithFormat:@"%s/Library/LaunchDaemons/com.axs.proxyshare.plist", buf]];
+    uint32_t sz = 0;
+    _NSGetExecutablePath(NULL, &sz);
+    if (sz > 0) {
+        char *buf = malloc(sz + 1);
+        if (buf && _NSGetExecutablePath(buf, &sz) == 0) {
+            NSString *exe = [NSString stringWithUTF8String:buf];
+            // <jbroot>/usr/bin/psctl -> <jbroot>
+            NSString *root = [[exe stringByDeletingLastPathComponent]
+                                     stringByDeletingLastPathComponent];
+            root = [root stringByDeletingLastPathComponent];
+            [cands addObject:[root stringByAppendingPathComponent:PLIST_REL]];
         }
+        free(buf);
     }
 
-    // 2) .jbroot-XXXX 形式
+    // .jbroot-XXXX 枚举（部分环境可读）
     NSString *apps = @"/var/containers/Bundle/Application";
     NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:apps error:NULL];
     for (NSString *d in dirs) {
         if (![d hasPrefix:@".jbroot-"]) continue;
-        NSString *p = [NSString stringWithFormat:@"%@/%@/Library/LaunchDaemons/com.axs.proxyshare.plist", apps, d];
-        [cands addObject:p];
+        [cands addObject:[NSString stringWithFormat:@"%@/%@/%@", apps, d, PLIST_REL]];
     }
 
-    // 3) 原始路径
-    [cands addObject:DAEMON_PLIST];
+    // 普通 rootless 环境
+    [cands addObject:[@"/" stringByAppendingPathComponent:PLIST_REL]];
 
+    NSFileManager *fm = [NSFileManager defaultManager];
     for (NSString *p in cands) {
-        if ([[NSFileManager defaultManager] fileExistsAtPath:p]) return p;
+        if ([fm fileExistsAtPath:p]) return p;
     }
-    return DAEMON_PLIST;
+    return cands.firstObject ?: [@"/" stringByAppendingPathComponent:PLIST_REL];
+}
+
+static NSString *PlistPath(void)
+{
+    if (!gPlistPath) gPlistPath = ResolvePlistPath();
+    return gPlistPath;
 }
 
 static NSMutableDictionary *LoadPlist(void)
 {
-    if (!gPlistPath) gPlistPath = ResolvePlistPath();
-    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:gPlistPath];
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:PlistPath()];
     if (![d isKindOfClass:[NSDictionary class]]) return nil;
     NSMutableDictionary *m = [d mutableCopy];
     if (![m[@"ProgramArguments"] isKindOfClass:[NSArray class]]) return nil;
@@ -82,13 +89,12 @@ static NSMutableDictionary *LoadPlist(void)
 
 static BOOL SavePlist(NSDictionary *d)
 {
-    if (!gPlistPath) gPlistPath = ResolvePlistPath();
-    BOOL ok = [d writeToFile:gPlistPath atomically:YES];
-    if (ok) chmod(gPlistPath.fileSystemRepresentation, 0644);
+    NSString *path = PlistPath();
+    BOOL ok = [d writeToFile:path atomically:YES];
+    if (ok) chmod(path.fileSystemRepresentation, 0644);
     return ok;
 }
 
-// 取参数值
 static NSString *ArgValue(NSArray *args, NSString *flag)
 {
     NSUInteger i = [args indexOfObject:flag];
@@ -131,83 +137,112 @@ static int RunCtl(const char *const argv[])
 
 static int DoRestart(void)
 {
-    const char *bootout[] = { "launchctl", "bootout", SVC_DOMAIN, DAEMON_PLIST_CSTR, NULL };
+    NSString *pp = PlistPath();
+    const char *path = pp.fileSystemRepresentation;
+
+    const char *bootout[] = { "launchctl", "bootout", SVC_DOMAIN, path, NULL };
     RunCtl(bootout);
     usleep(400 * 1000);
-    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, DAEMON_PLIST_CSTR, NULL };
+
+    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, path, NULL };
     int rc = RunCtl(boot);
     if (rc != 0) {
-        const char *load[] = { "launchctl", "load", "-w", DAEMON_PLIST_CSTR, NULL };
+        const char *load[] = { "launchctl", "load", "-w", path, NULL };
         rc = RunCtl(load);
     }
     return rc;
 }
 
+// 运行态：psd 的 /var/tmp 与 shell 隔离，可能读不到，属正常
+static NSDictionary *ReadState(void)
+{
+    NSArray *cands = @[
+        @"/var/tmp/ProxyShare/state.plist",
+        @"/private/var/tmp/ProxyShare/state.plist",
+    ];
+    for (NSString *p in cands) {
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
+        if ([d isKindOfClass:[NSDictionary class]]) return d;
+    }
+    return nil;
+}
+
 static void PrintStatus(void)
 {
     NSMutableDictionary *d = LoadPlist();
+    printf("配置文件 : %s\n", PlistPath().UTF8String);
+
     if (!d) {
-        printf("无法读取 %s（未安装？）\n", DAEMON_PLIST.UTF8String);
+        printf("状态     : 未安装或 plist 不可读\n");
         return;
     }
-    NSArray *a = d[@"ProgramArguments"];
-    printf("SOCKS5 端口 : %s\n", (ArgValue(a, @"--socks") ?: @"(默认 47680)").UTF8String);
-    printf("HTTP   端口 : %s\n", (ArgValue(a, @"--http")  ?: @"(默认 47681)").UTF8String);
-    printf("绑定地址    : %s\n", (ArgValue(a, @"--bind")  ?: @"(默认 0.0.0.0)").UTF8String);
-    printf("状态        : %s\n", ArgValue(a, @"--off") ? "已禁用" : "已启用");
 
-    // 运行态
-    NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:
-                        [SHARE_DIR stringByAppendingPathComponent:@"state.plist"]];
+    NSArray *a = d[@"ProgramArguments"];
+    NSString *socks = ArgValue(a, @"--socks") ?: @"47680(默认)";
+    NSString *http  = ArgValue(a, @"--http")  ?: @"47681(默认)";
+    NSString *bind  = ArgValue(a, @"--bind")  ?: @"0.0.0.0(默认)";
+
+    printf("SOCKS5   : %s\n", socks.UTF8String);
+    printf("HTTP     : %s\n", http.UTF8String);
+    printf("绑定     : %s\n", bind.UTF8String);
+    printf("开关     : %s\n", [a containsObject:@"--off"] ? "已禁用" : "已启用");
+
+    NSDictionary *st = ReadState();
     if (st) {
-        printf("进程        : pid %ld\n", (long)[st[@"pid"] integerValue]);
-        printf("连接数      : 总计 %ld / 活跃 %ld / 拒绝 %ld\n",
+        printf("进程     : pid %ld\n", (long)[st[@"pid"] integerValue]);
+        printf("连接     : 总计 %ld / 活跃 %ld / 拒绝 %ld\n",
                (long)[st[@"connections"] integerValue],
                (long)[st[@"active"] integerValue],
                (long)[st[@"rejected"] integerValue]);
         double up = [st[@"bytesUp"] doubleValue], dn = [st[@"bytesDown"] doubleValue];
-        printf("流量        : ↑ %.1f KB  ↓ %.1f KB\n", up/1024.0, dn/1024.0);
+        printf("流量     : 上行 %.1f KB  下行 %.1f KB\n", up / 1024.0, dn / 1024.0);
         NSString *be = st[@"bindError"];
-        if (be.length) printf("错误        : %s\n", be.UTF8String);
+        if (be.length) printf("错误     : %s\n", be.UTF8String);
     } else {
-        printf("运行态      : 未获取到（守护进程可能未运行）\n");
-        printf("              psd 的 /var/tmp 与 shell 是隔离的，属正常现象\n");
+        printf("运行态   : 读不到（psd 的 /var/tmp 与 shell 隔离，属正常）\n");
+        printf("           用 launchctl list | grep proxyshare 确认进程\n");
     }
+}
+
+static void PrintHelp(void)
+{
+    printf("psctl — ProxyShare 管理工具\n\n");
+    printf("  psctl status              查看配置与状态\n");
+    printf("  psctl set socks <端口>    改 SOCKS5 端口\n");
+    printf("  psctl set http  <端口>    改 HTTP 端口\n");
+    printf("  psctl set bind  <地址>    改绑定地址\n");
+    printf("  psctl restart             重启（应用改动）\n");
+    printf("  psctl on | off            启用 / 禁用\n\n");
+    printf("例：sudo psctl set socks 47690 && sudo psctl restart\n");
 }
 
 int main(int argc, const char *argv[])
 {
     @autoreleasepool {
+        if (argc < 2) { PrintHelp(); return 0; }
+
         if (geteuid() != 0) {
             printf("需要 root 权限，请用 sudo 运行\n");
             return 1;
         }
 
-        NSMutableDictionary *plist = LoadPlist();
-        if (!plist) {
-            printf("无法读取 %s\n", DAEMON_PLIST.UTF8String);
-            return 1;
-        }
-        NSMutableArray *args = plist[@"ProgramArguments"];
-
-        if (argc < 2) {
-            printf("psctl — ProxyShare 管理工具\n\n");
-            printf("  psctl status              查看状态与端口\n");
-            printf("  psctl set socks <端口>    改 SOCKS5 端口\n");
-            printf("  psctl set http  <端口>    改 HTTP 端口\n");
-            printf("  psctl set bind  <地址>    改绑定地址\n");
-            printf("  psctl restart             重启（应用改动）\n");
-            printf("  psctl on | off            启用 / 禁用\n\n");
-            printf("注意：端口白名单通过设置面板配置，或编辑守护进程配置。\n");
-            return 0;
-        }
-
         NSString *cmd = [NSString stringWithUTF8String:argv[1]];
 
-        if ([cmd isEqualToString:@"status"]) {
+        if ([cmd isEqualToString:@"status"] || [cmd isEqualToString:@"-s"]) {
             PrintStatus();
             return 0;
         }
+        if ([cmd isEqualToString:@"help"] || [cmd isEqualToString:@"-h"]) {
+            PrintHelp();
+            return 0;
+        }
+
+        NSMutableDictionary *plist = LoadPlist();
+        if (!plist) {
+            printf("无法读取 %s\n", PlistPath().UTF8String);
+            return 1;
+        }
+        NSMutableArray *args = plist[@"ProgramArguments"];
 
         if ([cmd isEqualToString:@"restart"]) {
             int rc = DoRestart();
@@ -220,7 +255,7 @@ int main(int argc, const char *argv[])
             else RemoveArg(args, @"--off");
             if (!SavePlist(plist)) { printf("写 plist 失败\n"); return 1; }
             DoRestart();
-            printf([cmd isEqualToString:@"on"] ? "已启用\n" : "已禁用\n");
+            printf("%s\n", [cmd isEqualToString:@"on"] ? "已启用" : "已禁用");
             return 0;
         }
 
@@ -231,15 +266,19 @@ int main(int argc, const char *argv[])
             if      ([what isEqualToString:@"socks"]) flag = @"--socks";
             else if ([what isEqualToString:@"http"])  flag = @"--http";
             else if ([what isEqualToString:@"bind"])  flag = @"--bind";
-            else { printf("未知字段: %s（可选 socks/http/bind）\n", argv[2]); return 1; }
-
+            else {
+                printf("未知字段: %s（可选 socks / http / bind）\n", argv[2]);
+                return 1;
+            }
             SetArg(args, flag, val);
             if (!SavePlist(plist)) { printf("写 plist 失败\n"); return 1; }
-            printf("已设置 %s = %s，执行 psctl restart 生效\n", flag.UTF8String, val.UTF8String);
+            printf("已设置 %s = %s\n", flag.UTF8String, val.UTF8String);
+            printf("执行 sudo psctl restart 生效\n");
             return 0;
         }
 
-        printf("未知命令: %s（试试不带参数查看帮助）\n", argv[1]);
+        printf("未知命令: %s\n\n", argv[1]);
+        PrintHelp();
         return 1;
     }
 }
