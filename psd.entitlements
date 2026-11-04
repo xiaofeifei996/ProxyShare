@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 脱离 App 沙盒：最关键的三项 -->
+	<!-- 脱离 App 沙盒 -->
 	<key>platform-application</key>
 	<true/>
 	<key>com.apple.private.security.no-sandbox</key>
@@ -12,10 +12,20 @@
 	<key>com.apple.private.security.no-container</key>
 	<true/>
 
-	<!-- 访问 App 容器与 Bundle -->
+	<!-- 访问各类存储 -->
 	<key>com.apple.private.security.storage.AppBundles</key>
 	<true/>
 	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
+	<key>com.apple.private.security.storage.MobileDocuments</key>
+	<true/>
+	<key>com.apple.private.security.storage.Photos</key>
+	<true/>
+
+	<!-- 关键：允许访问沙盒外文件系统（越狱工具常用） -->
+	<key>com.apple.private.security.storage.ExcludedFromBackup</key>
+	<true/>
+	<key>com.apple.private.security.storage.MediaLibrary</key>
 	<true/>
 
 	<!-- 网络 -->
@@ -24,5 +34,12 @@
 	<key>com.apple.security.network.client</key>
 	<true/>
 
+	<!-- 允许作为守护进程运行 -->
+	<key>com.apple.private.launchd.allow-unauthorized-kexts</key>
+	<true/>
+	<key>com.apple.private.launchd.allowanyexec</key>
+	<true/>
+	<key>com.apple.private.cs.debugger</key>
+	<true/>
 </dict>
 </plist>

@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 
 static PSProxyServer   *gServer;
 static PSControlServer *gControl;
@@ -188,6 +189,30 @@ int main(int argc, char *argv[])
             return 1;
         }
         PSWriteRuntimeState(YES, nil);
+
+        // ---- 文件通道自诊断 ----
+        {
+            char real[PATH_MAX] = {0};
+            const char *p = PS_STATE_FILE_C;
+            ssize_t n = readlink(p, real, sizeof(real) - 1);
+            struct stat st;
+            int st1 = stat(PS_STATE_DIR_C, &st);
+            fprintf(stderr, "[DIAG] 状态文件=%s\n", p);
+            fprintf(stderr, "[DIAG] stat(目录)=%d uid=%d mode=%o\n",
+                    st1, st1 == 0 ? st.st_uid : -1, st1 == 0 ? (st.st_mode & 07777) : 0);
+
+            FILE *t = fopen("/var/tmp/ProxyShare/_diag", "w");
+            fprintf(stderr, "[DIAG] fopen(_diag)=%s\n", t ? "ok" : strerror(errno));
+            if (t) fclose(t);
+
+            NSDictionary *probe = [NSDictionary dictionaryWithContentsOfFile:@"/var/tmp/ProxyShare/command.plist"];
+            fprintf(stderr, "[DIAG] 读 command.plist=%s\n",
+                    probe ? "ok" : "nil/失败");
+
+            BOOL wr = [@{@"x":@1} writeToFile:@"/var/tmp/ProxyShare/_diag.plist" atomically:YES];
+            fprintf(stderr, "[DIAG] 写 plist=%s\n", wr ? "ok" : "失败");
+            (void)n; (void)real;
+        }
 
         // 每 5 秒刷状态文件
         dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
