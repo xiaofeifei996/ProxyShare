@@ -6,7 +6,7 @@
 #import <Preferences/PSTextFieldSpecifier.h>
 
 #define PS_DOMAIN @"com.axs.proxyshare"
-#define PS_STATE  @"/var/mobile/Library/ProxyShare/state.plist"
+#define PS_STATE  @"/private/var/mobile/Library/ProxyShare/state.plist"
 
 @interface PSShareController : PSListController
 @end

@@ -49,14 +49,14 @@ int main(int argc, char *argv[])
             fprintf(stderr, "=== psd 自检 ===\n");
 
             // 1) 目录写权限
-            mkdir("/var/mobile/Library/ProxyShare", 0755);
-            FILE *t = fopen("/var/mobile/Library/ProxyShare/_selftest", "w");
-            if (t) { fputs("ok\n", t); fclose(t); unlink("/var/mobile/Library/ProxyShare/_selftest"); }
+            mkdir(PS_STATE_DIR_C, 0755);
+            FILE *t = fopen(PS_STATE_DIR_C "/_selftest", "w");
+            if (t) { fputs("ok\n", t); fclose(t); unlink(PS_STATE_DIR_C "/_selftest"); }
             fprintf(stderr, "目录可写: %s\n", t ? "是" : "否");
 
             // 2) 日志写入
             PSLog(@"自检日志测试");
-            FILE *lg = fopen("/var/mobile/Library/ProxyShare/proxy.log", "r");
+            FILE *lg = fopen(PS_LOG_FILE_C, "r");
             fprintf(stderr, "proxy.log 可读: %s\n", lg ? "是" : "否");
             if (lg) fclose(lg);
 
@@ -90,12 +90,12 @@ int main(int argc, char *argv[])
         // 先无条件写一条到 stderr，确认进程真的起来了
         fprintf(stderr, "[psd] main() entered, pid=%d\n", getpid());
         fflush(stderr);
-        mkdir("/var/mobile/Library/ProxyShare", 0755);
+        mkdir(PS_STATE_DIR_C, 0755);
 
         // 首次运行：写默认配置（不覆盖已有）
         // 注意：RootHide 下 access() 对某些路径可能失效，改用 fopen 试探
         {
-            const char *cfgPath = "/var/mobile/Library/ProxyShare/config.plist";
+            const char *cfgPath = PS_CONFIG_FILE_C;
             BOOL exists = NO;
             FILE *probe = fopen(cfgPath, "r");
             if (probe) { exists = YES; fclose(probe); }
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
                     @"httpPort"    : @(PS_DEFAULT_HTTP_PORT),
                     @"bindAddress" : PS_DEFAULT_BIND,
                 };
-                BOOL ok = [def writeToFile:@"/var/mobile/Library/ProxyShare/config.plist"
+                BOOL ok = [def writeToFile:PS_CONFIG_FILE
                                  atomically:YES];
                 chmod(cfgPath, 0644);
                 fprintf(stderr, "[psd] 生成默认 config.plist: %s\n", ok ? "成功" : "失败");

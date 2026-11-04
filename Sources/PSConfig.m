@@ -69,7 +69,7 @@ NSDictionary *PSReadState(void)
 
 void PSWriteState(NSDictionary *state)
 {
-    mkdir("/var/mobile/Library/ProxyShare", 0755);
+    mkdir(PS_STATE_DIR_C, 0755);
     [state writeToFile:PS_STATE_FILE atomically:YES];
     chmod(PS_STATE_FILE.fileSystemRepresentation, 0644);
 }
@@ -98,7 +98,7 @@ void PSLog(NSString *fmt, ...)
     // 文件：纯 C，append 模式
     static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&m);
-    FILE *fp = fopen("/var/mobile/Library/ProxyShare/proxy.log", "a");
+    FILE *fp = fopen(PS_LOG_FILE_C, "a");
     if (fp) {
         fputs(utf8, fp);
         fclose(fp);
