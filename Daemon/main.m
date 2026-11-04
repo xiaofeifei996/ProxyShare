@@ -159,10 +159,12 @@ int main(int argc, char *argv[])
         if (argHttp  > 0) PSConfigSet(@"httpPort",  @(argHttp));
         if (argCtrl  > 0) PSConfigSet(@"ctrlPort",  @(argCtrl));
 
-        if (argDisable || !PSConfigBool(@"enabled", YES)) {
-            PSLog(@"配置为未启用（%@），退出", argDisable ? @"启动参数 --off" : @"config.plist");
-            PSWriteRuntimeState(NO, nil);
-            return 0;
+        BOOL startEnabled = PSConfigBool(@"enabled", YES);
+        if (argDisable || !startEnabled) {
+            // 不退出进程——保持常驻，等待面板把开关打开。
+            // （退出的话 launchd 会反复重启，且面板改了也拉不起来）
+            PSLog(@"配置为未启用（%@），保持待命", argDisable ? @"启动参数 --off" : @"面板设置");
+            PSWriteRuntimeState(NO, @"已停用");
         }
 
         uint16_t socksPort = (uint16_t)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
@@ -182,13 +184,15 @@ int main(int argc, char *argv[])
         }
 
         gServer = [PSProxyServer new];
-        NSString *err = nil;
-        if (![gServer startWithSOCKS:socksPort http:httpPort error:&err]) {
-            PSLog(@"启动失败：%@", err);
-            PSWriteRuntimeState(NO, err);
-            return 1;
+        if (startEnabled) {
+            NSString *err = nil;
+            if (![gServer startWithSOCKS:socksPort http:httpPort error:&err]) {
+                PSLog(@"启动失败：%@", err);
+                PSWriteRuntimeState(NO, err);
+            } else {
+                PSWriteRuntimeState(YES, nil);
+            }
         }
-        PSWriteRuntimeState(YES, nil);
 
         // 每 5 秒刷状态文件
         dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
@@ -202,7 +206,8 @@ int main(int argc, char *argv[])
         dispatch_resume(timer);
 
         // 监视配置：每 2 秒重读一次，支持面板改开关后实时生效
-        __block BOOL lastEnabled = YES;
+        // 初始值用实际读到的状态，否则第一次 tick 会被误判为「刚被打开」
+        __block BOOL lastEnabled = startEnabled;
         dispatch_source_t cfgTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                            dispatch_get_main_queue());
         dispatch_source_set_timer(cfgTimer,

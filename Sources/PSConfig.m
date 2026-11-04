@@ -93,11 +93,14 @@ static id PSConfigFromFile(NSString *key)
 
 static id PSConfigValue(NSString *key)
 {
+    // 1) 内存（启动参数 / psctl 显式设置，优先级最高）
     pthread_mutex_lock(&gCfgMutex);
     PSConfigEnsureMem();
     id mem = gMemConfig[key];
     pthread_mutex_unlock(&gCfgMutex);
     if (mem) return mem;
+
+    // 2) 面板偏好 → 3) config.plist → 4) cfprefsd
     return PSConfigFromFile(key);
 }
 
@@ -149,12 +152,11 @@ int PSConfigVersion(void)
 
 void PSConfigLoadFromFile(void)
 {
-    NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
-    if (![cfg isKindOfClass:[NSDictionary class]]) return;
-    pthread_mutex_lock(&gCfgMutex);
-    PSConfigEnsureMem();
-    [gMemConfig addEntriesFromDictionary:cfg];
-    pthread_mutex_unlock(&gCfgMutex);
+    // config.plist 只作为**默认值**来源，不预先灌进内存。
+    // 之前在启动时把整个文件塞进 gMemConfig，而 gMemConfig 的优先级最高，
+    // 结果面板改的开关/端口永远被这里的旧值盖住（开关关不掉就是这个原因）。
+    // 现在改为：内存只保存运行期显式设置的值（psctl / 启动参数）。
+    (void)PS_CONFIG_FILE;
 }
 
 BOOL PSConfigSaveToFile(void)
