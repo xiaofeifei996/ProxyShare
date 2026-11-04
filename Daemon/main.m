@@ -48,11 +48,27 @@ int main(int argc, char *argv[])
         if (argc > 1 && strcmp(argv[1], "--selftest") == 0) {
             fprintf(stderr, "=== psd 自检 ===\n");
 
-            // 1) 目录写权限
-            mkdir(PS_STATE_DIR_C, 0755);
-            FILE *t = fopen(PS_STATE_DIR_C "/_selftest", "w");
-            if (t) { fputs("ok\n", t); fclose(t); unlink(PS_STATE_DIR_C "/_selftest"); }
-            fprintf(stderr, "目录可写: %s\n", t ? "是" : "否");
+            // 1) 目录写权限（逐个候选目录探测，找出 root 守护进程真正能写的位置）
+            char probePath[512];
+            const char *cands[] = {
+                "/Library/ProxyShare",
+                "/var/root/ProxyShare",
+                "/var/tmp/ProxyShare",
+                "/tmp/ProxyShare",
+                "/private/var/mobile/Library/ProxyShare",
+                "/var/mobile/Library/ProxyShare",
+                NULL
+            };
+            for (int i = 0; cands[i]; i++) {
+                mkdir(cands[i], 0777);
+                snprintf(probePath, sizeof(probePath), "%s/_st", cands[i]);
+                FILE *t = fopen(probePath, "w");
+                fprintf(stderr, "目录 %-42s -> %s%s%s\n", cands[i],
+                        t ? "可写" : "不可写",
+                        t ? "" : " (", t ? "" : strerror(errno));
+                if (t) { fclose(t); unlink(probePath); }
+            }
+            fprintf(stderr, "当前 PS_STATE_DIR = %s\n", PS_STATE_DIR_C);
 
             // 2) 日志写入
             PSLog(@"自检日志测试");
