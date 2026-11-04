@@ -15,6 +15,7 @@
 #define PS_COMMON_H
 
 #import <Foundation/Foundation.h>
+#import <dispatch/dispatch.h>
 
 // 共享目录（root 可写，mobile 可读）
 #define PS_STATE_DIR        @"/var/mobile/Library/ProxyShare"
@@ -42,7 +43,7 @@ void         PSWriteState(NSDictionary *state);
 // 日志（同时写文件与 stderr）
 void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
 
-// 统计
+// 统计（守护进程写，面板/状态文件读）
 @interface PSStats : NSObject
 @property (atomic, assign) uint64_t acceptedConnections;
 @property (atomic, assign) uint64_t activeConnections;
@@ -53,6 +54,6 @@ void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
 @property (atomic, copy)   NSString *startedAt;
 @end
 
-extern PSStats *PSSharedStats(void);
+PSStats *PSSharedStats(void);
 
 #endif /* PS_COMMON_H */

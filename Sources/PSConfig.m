@@ -10,11 +10,7 @@ static pthread_mutex_t gLogMutex = PTHREAD_MUTEX_INITIALIZER;
 // 每次调用都重新读盘，避免长驻守护进程拿到过期快照。
 static id PSConfigValue(NSString *key)
 {
-    static NSString *candidates[] = {
-        @"/var/mobile/Library/ProxyShare/state.plist",
-        @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist",
-    };
-    // 1) 共享状态文件优先
+    // 1) 共享状态文件优先（守护进程与设置面板都写这一份）
     NSDictionary *shared = [NSDictionary dictionaryWithContentsOfFile:PS_STATE_FILE];
     if (shared && shared[key]) return shared[key];
 
@@ -28,7 +24,6 @@ static id PSConfigValue(NSString *key)
                            @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
     if (prefs && prefs[key]) return prefs[key];
 
-    (void)candidates;
     return nil;
 }
 
@@ -125,7 +120,7 @@ void PSLog(NSString *fmt, ...)
     pthread_mutex_unlock(&gLogMutex);
 }
 
-// ---------------------------------------------------------------- 统计
+// 统计
 
 @implementation PSStats
 @end

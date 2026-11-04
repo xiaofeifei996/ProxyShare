@@ -63,7 +63,7 @@ jobs:
       - name: Build Package
         run: |
           set -o pipefail
-          ./build.sh roothide
+          chmod +x build.sh
           sh build.sh "roothide" 2>&1 | tee /tmp/build.log
           echo "=== .deb files ==="
           find ./packages -name "*.deb" -type f
@@ -90,6 +90,9 @@ jobs:
         run: |
           mkdir -p errors
           cp /tmp/build.log "errors/build-run-${{ github.run_id }}-roothide.txt" 2>/dev/null || true
+          echo "===== BUILD LOG START ====="
+          tail -c 60000 /tmp/build.log 2>/dev/null || echo "(no log)"
+          echo "===== BUILD LOG END ====="
           git config user.name "ci-bot"
           git config user.email "ci-bot@users.noreply.github.com"
           git checkout -B build-logs
