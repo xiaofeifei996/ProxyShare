@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <limits.h>
 
 #define DAEMON_PLIST      @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
 #define DAEMON_PLIST_CSTR "/Library/LaunchDaemons/com.axs.proxyshare.plist"
@@ -32,9 +33,46 @@
 #define SVC_DOMAIN   "system"
 #define SHARE_DIR    @"/var/tmp/ProxyShare"
 
+static NSString *gPlistPath = nil;
+
+// RootHide 下不同进程看到的 /Library 可能不同，
+// 依次尝试：jbroot 真实路径 → 原始路径
+static NSString *ResolvePlistPath(void)
+{
+    NSMutableArray *cands = [NSMutableArray array];
+
+    // 1) 通过 /var/jb 解析出 jbroot 真身
+    char buf[PATH_MAX] = {0};
+    ssize_t n = readlink("/var/jb", buf, sizeof(buf) - 1);
+    if (n > 0) {
+        buf[n] = 0;
+        if (strcmp(buf, "/") != 0) {
+            [cands addObject:[NSString stringWithFormat:@"%s/Library/LaunchDaemons/com.axs.proxyshare.plist", buf]];
+        }
+    }
+
+    // 2) .jbroot-XXXX 形式
+    NSString *apps = @"/var/containers/Bundle/Application";
+    NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:apps error:NULL];
+    for (NSString *d in dirs) {
+        if (![d hasPrefix:@".jbroot-"]) continue;
+        NSString *p = [NSString stringWithFormat:@"%@/%@/Library/LaunchDaemons/com.axs.proxyshare.plist", apps, d];
+        [cands addObject:p];
+    }
+
+    // 3) 原始路径
+    [cands addObject:DAEMON_PLIST];
+
+    for (NSString *p in cands) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:p]) return p;
+    }
+    return DAEMON_PLIST;
+}
+
 static NSMutableDictionary *LoadPlist(void)
 {
-    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:DAEMON_PLIST];
+    if (!gPlistPath) gPlistPath = ResolvePlistPath();
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:gPlistPath];
     if (![d isKindOfClass:[NSDictionary class]]) return nil;
     NSMutableDictionary *m = [d mutableCopy];
     if (![m[@"ProgramArguments"] isKindOfClass:[NSArray class]]) return nil;
@@ -44,8 +82,9 @@ static NSMutableDictionary *LoadPlist(void)
 
 static BOOL SavePlist(NSDictionary *d)
 {
-    BOOL ok = [d writeToFile:DAEMON_PLIST atomically:YES];
-    if (ok) chmod(DAEMON_PLIST.fileSystemRepresentation, 0644);
+    if (!gPlistPath) gPlistPath = ResolvePlistPath();
+    BOOL ok = [d writeToFile:gPlistPath atomically:YES];
+    if (ok) chmod(gPlistPath.fileSystemRepresentation, 0644);
     return ok;
 }
 
