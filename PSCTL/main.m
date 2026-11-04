@@ -120,12 +120,15 @@ static void PrintStatus(void)
     NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:
                         [SHARE_DIR stringByAppendingPathComponent:@"state.plist"]];
     if (st) {
-        printf("进程        : pid %@\n", st[@"pid"] ?: @"?");
-        printf("连接数      : 总计 %@ / 活跃 %@ / 拒绝 %@\n",
-               st[@"connections"] ?: @0, st[@"active"] ?: @0, st[@"rejected"] ?: @0);
+        printf("进程        : pid %ld\n", (long)[st[@"pid"] integerValue]);
+        printf("连接数      : 总计 %ld / 活跃 %ld / 拒绝 %ld\n",
+               (long)[st[@"connections"] integerValue],
+               (long)[st[@"active"] integerValue],
+               (long)[st[@"rejected"] integerValue]);
         double up = [st[@"bytesUp"] doubleValue], dn = [st[@"bytesDown"] doubleValue];
         printf("流量        : ↑ %.1f KB  ↓ %.1f KB\n", up/1024.0, dn/1024.0);
-        if (st[@"bindError"]) printf("错误        : %@\n", st[@"bindError"]);
+        NSString *be = st[@"bindError"];
+        if (be.length) printf("错误        : %s\n", be.UTF8String);
     } else {
         printf("运行态      : 未获取到（守护进程可能未运行）\n");
         printf("              psd 的 /var/tmp 与 shell 是隔离的，属正常现象\n");
@@ -159,7 +162,7 @@ int main(int argc, const char *argv[])
             return 0;
         }
 
-        NSString *cmd = @(argv[1]);
+        NSString *cmd = [NSString stringWithUTF8String:argv[1]];
 
         if ([cmd isEqualToString:@"status"]) {
             PrintStatus();
@@ -182,8 +185,8 @@ int main(int argc, const char *argv[])
         }
 
         if ([cmd isEqualToString:@"set"] && argc >= 4) {
-            NSString *what = @(argv[2]);
-            NSString *val  = @(argv[3]);
+            NSString *what = [NSString stringWithUTF8String:argv[2]];
+            NSString *val  = [NSString stringWithUTF8String:argv[3]];
             NSString *flag = nil;
             if      ([what isEqualToString:@"socks"]) flag = @"--socks";
             else if ([what isEqualToString:@"http"])  flag = @"--http";
