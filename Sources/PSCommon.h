@@ -31,6 +31,7 @@
 #define PS_STATE_DIR_C      "/var/tmp/ProxyShare"
 #define PS_LOG_FILE_C       "/var/tmp/ProxyShare/proxy.log"
 #define PS_CONFIG_FILE_C    "/var/tmp/ProxyShare/config.plist"
+#define PS_STATE_FILE_C     "/var/tmp/ProxyShare/state.plist"
 
 // 默认值（避开 1080/1086/8118 等代理软件常用端口）
 #define PS_DEFAULT_SOCKS_PORT   47680
