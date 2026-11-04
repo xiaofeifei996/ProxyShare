@@ -1,5 +1,5 @@
 //
-//  PSDaemon.m — 守护进程入口
+//  main.m — 守护进程入口
 //
 //  launchd 以 root 身份拉起，监听 0.0.0.0 上的 SOCKS5 / HTTP 端口。
 //  出站 connect() 走系统默认路由，因而自动经过本机已开启的 VPN 隧道。
@@ -7,6 +7,7 @@
 
 #import "PSCommon.h"
 #import "PSProxyServer.h"
+#import "PSControlServer.h"
 
 #include <signal.h>
 #include <unistd.h>
@@ -16,28 +17,57 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
-#include <dirent.h>
 
-static PSProxyServer *gServer;
+static PSProxyServer   *gServer;
+static PSControlServer *gControl;
 
 static void PSWriteRuntimeState(BOOL running, NSString *err)
 {
     PSStats *s = PSSharedStats();
     NSMutableDictionary *d = [@{
-        @"running"        : @(running),
-        @"socksPort"      : @(PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT)),
-        @"httpPort"       : @(PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT)),
-        @"pid"            : @(getpid()),
-        @"startedAt"      : s.startedAt ?: @"",
-        @"connections"    : @(s.acceptedConnections),
-        @"active"         : @(s.activeConnections),
-        @"bytesUp"        : @(s.bytesUp),
-        @"bytesDown"      : @(s.bytesDown),
-        @"lastError"      : s.lastError ?: @"",
-        @"updatedAt"      : @([[NSDate date] timeIntervalSince1970]),
+        @"running"     : @(running),
+        @"socksPort"   : @(PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT)),
+        @"httpPort"    : @(PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT)),
+        @"ctrlPort"    : @(PSConfigInt(@"ctrlPort",  PS_DEFAULT_CTRL_PORT)),
+        @"aclEnabled"  : @(PSConfigBool(@"aclEnabled", NO)),
+        @"pid"         : @(getpid()),
+        @"startedAt"   : s.startedAt ?: @"",
+        @"connections" : @(s.acceptedConnections),
+        @"active"      : @(s.activeConnections),
+        @"rejected"    : @(s.rejectedConnections),
+        @"bytesUp"     : @(s.bytesUp),
+        @"bytesDown"   : @(s.bytesDown),
+        @"lastError"   : s.lastError ?: @"",
+        @"updatedAt"   : @([[NSDate date] timeIntervalSince1970]),
     } mutableCopy];
     if (err) d[@"bindError"] = err;
     PSWriteState(d);
+}
+
+// 重启监听（控制端口下发新端口时调用）
+static void PSRestartListeners(void)
+{
+    uint16_t sp = (uint16_t)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
+    uint16_t hp = (uint16_t)PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT);
+
+    PSLog(@"[配置] 重启监听 SOCKS=:%u HTTP=:%u", sp, hp);
+    [gServer stop];
+
+    NSString *e = nil;
+    if (![gServer startWithSOCKS:sp http:hp error:&e]) {
+        PSLog(@"[配置] 重启失败：%@", e);
+        PSWriteRuntimeState(NO, e);
+    } else {
+        PSWriteRuntimeState(YES, nil);
+    }
+}
+
+static void PSExitNow(void)
+{
+    PSLog(@"收到 shutdown 指令，退出");
+    PSWriteRuntimeState(NO, nil);
+    sleep(1);
+    exit(0);
 }
 
 int main(int argc, char *argv[])
@@ -49,15 +79,11 @@ int main(int argc, char *argv[])
         if (argc > 1 && strcmp(argv[1], "--selftest") == 0) {
             fprintf(stderr, "=== psd 自检 ===\n");
 
-            // 1) 目录写权限（逐个候选目录探测，找出 root 守护进程真正能写的位置）
             char probePath[512];
             const char *cands[] = {
-                "/Library/ProxyShare",
-                "/var/root/ProxyShare",
                 "/var/tmp/ProxyShare",
-                "/tmp/ProxyShare",
-                "/private/var/mobile/Library/ProxyShare",
-                "/var/mobile/Library/ProxyShare",
+                "/var/root/ProxyShare",
+                "/Library/ProxyShare",
                 NULL
             };
             for (int i = 0; cands[i]; i++) {
@@ -66,56 +92,20 @@ int main(int argc, char *argv[])
                 snprintf(probePath, sizeof(probePath), "%s/_st", cands[i]);
                 FILE *t = fopen(probePath, "w");
                 int opErr = errno;
-                fprintf(stderr, "目录 %-42s mkdir=%d(%s) fopen=%s(%s)\n",
+                fprintf(stderr, "目录 %-32s mkdir=%d(%s) fopen=%s(%s)\n",
                         cands[i], mk, strerror(mkErr),
                         t ? "ok" : "fail", t ? "-" : strerror(opErr));
                 if (t) { fclose(t); unlink(probePath); }
             }
-            fprintf(stderr, "当前 PS_STATE_DIR = %s\n", PS_STATE_DIR_C);
 
-            // 2) 看看这个进程眼中的根目录长什么样
-            fprintf(stderr, "--- psd 视角的 / ---\n");
-            DIR *d = opendir("/");
-            if (d) {
-                struct dirent *e;
-                int n = 0;
-                while ((e = readdir(d)) && n < 30) {
-                    fprintf(stderr, "  %s\n", e->d_name);
-                    n++;
-                }
-                closedir(d);
-            } else {
-                fprintf(stderr, "  无法打开 /: %s\n", strerror(errno));
-            }
-            fprintf(stderr, "--- psd 视角的 /Library ---\n");
-            d = opendir("/Library");
-            if (d) {
-                struct dirent *e;
-                int n = 0;
-                while ((e = readdir(d)) && n < 20) {
-                    fprintf(stderr, "  %s\n", e->d_name);
-                    n++;
-                }
-                closedir(d);
-            } else {
-                fprintf(stderr, "  无法打开 /Library: %s\n", strerror(errno));
-            }
-
-            // 2) 日志写入
-            PSLog(@"自检日志测试");
-            FILE *lg = fopen(PS_LOG_FILE_C, "r");
-            fprintf(stderr, "proxy.log 可读: %s\n", lg ? "是" : "否");
-            if (lg) fclose(lg);
-
-            // 3) 配置读取
-            fprintf(stderr, "配置 enabled=%d socks=%ld http=%ld bind=%s\n",
+            fprintf(stderr, "配置 enabled=%d socks=%ld http=%ld ctrl=%ld acl=%d\n",
                     PSConfigBool(@"enabled", YES),
                     (long)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT),
                     (long)PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT),
-                    PSConfigString(@"bindAddress", PS_DEFAULT_BIND).UTF8String);
+                    (long)PSConfigInt(@"ctrlPort", PS_DEFAULT_CTRL_PORT),
+                    PSConfigBool(@"aclEnabled", NO));
 
-            // 4) 逐端口试 bind，找出哪个能听
-            int ports[] = { 1086, 8118, 47680, 47681, 38086, 0 };
+            int ports[] = { 1086, 8118, 47680, 47681, 47682, 38086, 0 };
             for (int i = 0; ports[i]; i++) {
                 int fd = socket(AF_INET, SOCK_STREAM, 0);
                 int one = 1;
@@ -126,71 +116,69 @@ int main(int argc, char *argv[])
                 a.sin_addr.s_addr = htonl(INADDR_ANY);
                 a.sin_port = htons((uint16_t)ports[i]);
                 int r = bind(fd, (struct sockaddr *)&a, sizeof(a));
-                fprintf(stderr, "bind :%d -> %s%s%s\n", ports[i], r == 0 ? "成功" : "失败",
+                fprintf(stderr, "bind :%-6d -> %s%s%s\n", ports[i],
+                        r == 0 ? "成功" : "失败",
                         r == 0 ? "" : " (", r == 0 ? "" : strerror(errno));
                 close(fd);
+            }
+
+            // ACL 自测
+            NSArray *acl = PSConfigACLList();
+            fprintf(stderr, "ACL 启用=%d 规则数=%lu\n",
+                    PSConfigBool(@"aclEnabled", NO), (unsigned long)acl.count);
+            for (NSString *r in acl) {
+                fprintf(stderr, "  规则 %-20s 合法=%d\n", r.UTF8String, PSACLValidRule(r));
             }
             fprintf(stderr, "=== 自检结束 ===\n");
             return 0;
         }
 
-        // 先无条件写一条到 stderr，确认进程真的起来了
         fprintf(stderr, "[psd] main() entered, pid=%d\n", getpid());
         fflush(stderr);
 
         // ---- 命令行参数优先（RootHide 下文件视图可能隔离，参数最可靠）----
-        NSInteger argSocks = 0, argHttp = 0;
+        NSInteger argSocks = 0, argHttp = 0, argCtrl = 0;
         NSString *argBind = nil;
         BOOL argDisable = NO;
         for (int i = 1; i < argc; i++) {
             if (!strcmp(argv[i], "--socks") && i + 1 < argc)       argSocks = atoi(argv[++i]);
             else if (!strcmp(argv[i], "--http") && i + 1 < argc)   argHttp  = atoi(argv[++i]);
+            else if (!strcmp(argv[i], "--ctrl") && i + 1 < argc)   argCtrl  = atoi(argv[++i]);
             else if (!strcmp(argv[i], "--bind") && i + 1 < argc)   argBind  = @(argv[++i]);
             else if (!strcmp(argv[i], "--off"))                    argDisable = YES;
         }
         if (argBind.length) setenv("PS_BIND_OVERRIDE", argBind.UTF8String, 1);
-        mkdir(PS_STATE_DIR_C, 0755);
 
-        // 首次运行：写默认配置（不覆盖已有）
-        // 注意：RootHide 下 access() 对某些路径可能失效，改用 fopen 试探
-        {
-            const char *cfgPath = PS_CONFIG_FILE_C;
-            BOOL exists = NO;
-            FILE *probe = fopen(cfgPath, "r");
-            if (probe) { exists = YES; fclose(probe); }
+        mkdir(PS_STATE_DIR_C, 0777);
 
-            if (!exists) {
-                NSDictionary *def = @{
-                    @"enabled"     : @YES,
-                    @"socksPort"   : @(PS_DEFAULT_SOCKS_PORT),
-                    @"httpPort"    : @(PS_DEFAULT_HTTP_PORT),
-                    @"bindAddress" : PS_DEFAULT_BIND,
-                };
-                BOOL ok = [def writeToFile:PS_CONFIG_FILE
-                                 atomically:YES];
-                chmod(cfgPath, 0644);
-                fprintf(stderr, "[psd] 生成默认 config.plist: %s\n", ok ? "成功" : "失败");
-            } else {
-                fprintf(stderr, "[psd] 已有 config.plist，保持不动\n");
-            }
-        }
+        // 先从磁盘载入配置，再用启动参数覆盖
+        PSConfigLoadFromFile();
 
-        PSLog(@"===== ProxyShare 守护进程启动 (pid %d) =====", getpid());
+        if (argSocks > 0) PSConfigSet(@"socksPort", @(argSocks));
+        if (argHttp  > 0) PSConfigSet(@"httpPort",  @(argHttp));
+        if (argCtrl  > 0) PSConfigSet(@"ctrlPort",  @(argCtrl));
 
-        // 未启用则直接退出，交给 launchd 的 KeepAlive 判断
         if (argDisable || !PSConfigBool(@"enabled", YES)) {
             PSLog(@"配置为未启用（%@），退出", argDisable ? @"启动参数 --off" : @"config.plist");
             PSWriteRuntimeState(NO, nil);
             return 0;
         }
 
-        uint16_t socksPort = (uint16_t)(argSocks > 0 ? argSocks
-                                       : PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT));
-        uint16_t httpPort  = (uint16_t)(argHttp > 0 ? argHttp
-                                       : PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT));
+        uint16_t socksPort = (uint16_t)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
+        uint16_t httpPort  = (uint16_t)PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT);
+        uint16_t ctrlPort  = (uint16_t)PSConfigInt(@"ctrlPort",  PS_DEFAULT_CTRL_PORT);
+        PSLog(@"读取配置：SOCKS=:%u  HTTP=:%u  CTRL=:%u", socksPort, httpPort, ctrlPort);
 
-        PSLog(@"读取配置：SOCKS=:%u  HTTP=:%u%s", socksPort, httpPort,
-              (argSocks || argHttp) ? "（来自启动参数）" : "（来自 config.plist）");
+        // 注册回调（控制端口用）
+        PSControlSetReloadHandler(^{ PSRestartListeners(); });
+        PSControlSetExitHandler(^{ PSExitNow(); });
+
+        // 控制端口先起来，即使代理端口绑定失败也能查状态
+        gControl = [PSControlServer new];
+        NSString *ctrlErr = nil;
+        if (![gControl startOnPort:ctrlPort error:&ctrlErr]) {
+            PSLog(@"控制端口启动失败：%@", ctrlErr);
+        }
 
         gServer = [PSProxyServer new];
         NSString *err = nil;
@@ -201,7 +189,7 @@ int main(int argc, char *argv[])
         }
         PSWriteRuntimeState(YES, nil);
 
-        // 每 5 秒刷一次状态文件，供设置面板显示
+        // 每 5 秒刷状态文件
         dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                         dispatch_get_main_queue());
         dispatch_source_set_timer(timer,
@@ -212,43 +200,24 @@ int main(int argc, char *argv[])
         });
         dispatch_resume(timer);
 
-        // 配置变化时重载（端口/开关）
+        // 监视配置版本（控制端口 set 会递增）
+        static int lastVer = -1;
         dispatch_source_t cfgTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                            dispatch_get_main_queue());
         dispatch_source_set_timer(cfgTimer,
-                                  dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
-                                  10 * NSEC_PER_SEC, NSEC_PER_SEC);
-        // 用当前配置初始化，避免首次 tick 就误判为「变更」
-        static BOOL inited = NO;
-        static NSInteger lastHash = 0;
-        if (!inited) {
-            inited = YES;
-            lastHash = (PSConfigBool(@"enabled", YES) ? 1000000 : 0)
-                     + PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT) * 1000
-                     + PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT);
-        }
+                                  dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC),
+                                  3 * NSEC_PER_SEC, NSEC_PER_SEC);
         dispatch_source_set_event_handler(cfgTimer, ^{
-            BOOL on = PSConfigBool(@"enabled", YES);
-            NSInteger sp = PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
-            NSInteger hp = PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT);
-            NSInteger h = (on ? 1000000 : 0) + sp * 1000 + hp;
-            if (h == lastHash) return;
-            lastHash = h;
+            int v = PSConfigVersion();
+            if (lastVer < 0) { lastVer = v; return; }
+            if (v == lastVer) return;
+            lastVer = v;
 
-            if (!on) {
-                PSLog(@"配置关闭，退出进程（launchd 将不再拉起）");
-                [gServer stop];
-                PSWriteRuntimeState(NO, nil);
-                exit(0);
+            if (!PSConfigBool(@"enabled", YES)) {
+                PSExitNow();
             }
-            PSLog(@"配置变更（SOCKS=:%ld HTTP=:%ld），重启监听", (long)sp, (long)hp);
-            [gServer stop];
-            NSString *e = nil;
-            if (![gServer startWithSOCKS:(uint16_t)sp http:(uint16_t)hp error:&e]) {
-                PSWriteRuntimeState(NO, e);
-            } else {
-                PSWriteRuntimeState(YES, nil);
-            }
+            // 端口变化由控制端口直接触发 PSRestartListeners，这里只刷新状态
+            PSWriteRuntimeState(YES, nil);
         });
         dispatch_resume(cfgTimer);
 

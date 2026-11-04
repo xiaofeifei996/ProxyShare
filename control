@@ -1,8 +1,8 @@
 Package: com.axs.proxyshare
 Name: ProxyShare
-Version: 1.0.0
+Version: 1.1.0
 Architecture: iphoneos-arm64e
-Description: 把本机代理隧道共享给局域网内的其它设备（SOCKS5 + HTTP CONNECT）
+Description: 把本机代理隧道共享给局域网内其它设备（SOCKS5 + HTTP CONNECT，支持 IP 白名单）
 Maintainer: axs
 Author: axs
 Section: Networking

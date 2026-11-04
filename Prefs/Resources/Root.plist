@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+
+		<!-- ================= 状态 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>运行状态</string>
+			<key>id</key><string>statusGroup</string>
+			<key>footerText</key><string>加载中…</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>服务</string>
+			<key>get</key><string>statusValue:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>连接</string>
+			<key>get</key><string>connValue:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>流量</string>
+			<key>get</key><string>trafficValue:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>本机地址</string>
+			<key>get</key><string>localIPValue:</string>
+		</dict>
+
+		<!-- ================= 开关 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>开关</string>
+			<key>footerText</key><string>关闭后守护进程会退出，端口不再监听。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用代理共享</string>
+			<key>key</key><string>enabled</string>
+			<key>default</key><true/>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+		</dict>
+
+		<!-- ================= 端口 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>端口</string>
+			<key>footerText</key><string>SOCKS5 给 Clash / Surfboard / Shadowrocket 等客户端；HTTP 给「Wi-Fi → 代理」直接填。两者不能相同。避开 1080/1086/8118 等代理软件常用端口。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>SOCKS5 端口</string>
+			<key>key</key><string>socksPort</string>
+			<key>default</key><string>47680</string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+			<key>keyboard</key><string>NumberPad</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>HTTP 端口</string>
+			<key>key</key><string>httpPort</string>
+			<key>default</key><string>47681</string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+			<key>keyboard</key><string>NumberPad</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>绑定地址</string>
+			<key>key</key><string>bindAddress</string>
+			<key>default</key><string>0.0.0.0</string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+		</dict>
+
+		<!-- ================= 访问控制 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>访问控制</string>
+			<key>footerText</key><string>开启后，只有列表内的地址能使用本机代理。支持 192.168.1.5、192.168.1.0/24、192.168.1.* 三种写法，逗号分隔。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>仅允许指定地址</string>
+			<key>key</key><string>aclEnabled</string>
+			<key>default</key><false/>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>白名单</string>
+			<key>key</key><string>aclList</string>
+			<key>default</key><string></string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+			<key>placeholder</key><string>192.168.1.0/24, 10.0.0.5</string>
+		</dict>
+
+		<!-- ================= 操作 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>操作</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSButtonCell</string>
+			<key>label</key><string>重启监听</string>
+			<key>action</key><string>restartDaemon:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSButtonCell</string>
+			<key>label</key><string>清零流量统计</string>
+			<key>action</key><string>resetStats:</string>
+		</dict>
+
+		<!-- ================= 用法 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>怎么用</string>
+			<key>footerText</key><string>iOS：Wi-Fi → 当前网络 → 配置代理 → 手动 → 填上面的「本机地址」和 HTTP 端口。\n\nAndroid / Clash：加 SOCKS5 节点，填「本机地址」和 SOCKS5 端口。\n\n前提：本机的代理软件要保持运行，两台设备在同一 Wi-Fi 下。</string>
+		</dict>
+
+	</array>
+</dict>
+</plist>

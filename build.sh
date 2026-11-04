@@ -4,7 +4,7 @@ set -e
 
 VARIANT="${1:-roothide}"
 NAME="ProxyShare"
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 if [ -z "$THEOS" ]; then
     echo "错误: 未设置 THEOS 环境变量" >&2
@@ -18,12 +18,18 @@ rm -rf .theos packages
 mkdir -p packages
 
 make clean >/dev/null 2>&1 || true
-make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" DEBUG=0 2>&1 | tail -30
+
+# 构建守护进程 + 设置面板
+make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" DEBUG=0 2>&1 | tail -40
 
 if [ ! -f .theos/obj/psd ]; then
     echo "错误: 未生成 .theos/obj/psd" >&2
     exit 1
 fi
+
+# Theos 会把 bundle 放在 .theos/obj/ 下
+PREFS_BUNDLE="$(find .theos -name 'ProxySharePrefs.bundle' -type d 2>/dev/null | head -1)"
+echo "=== 设置面板 bundle: ${PREFS_BUNDLE:-未找到} ==="
 
 STAGE="packages/stage"
 rm -rf "$STAGE"
@@ -32,48 +38,63 @@ cp -R layout/* "$STAGE/"
 
 mkdir -p "$STAGE/usr/libexec"
 cp .theos/obj/psd "$STAGE/usr/libexec/psd"
-chmod 0755 "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
-# 用 entitlements 重新签名（关键：脱离 App 沙盒，否则 /var/tmp 等路径不可写）
-echo "=== 用 entitlements 签名 psd ==="
-# 优先用 macOS 原生 codesign（对 fat 二进制支持好，不会像 ldid 那样 assert）
-if command -v codesign >/dev/null 2>&1; then
-    echo "使用 codesign"
-    codesign --force --sign - --entitlements psd.entitlements \
-             "$STAGE/usr/libexec/psd" 2>&1 | head -5
-    echo "校验:"
-    codesign -d --entitlements - "$STAGE/usr/libexec/psd" 2>&1 | head -20
+# 安装设置面板 bundle
+if [ -n "$PREFS_BUNDLE" ] && [ -d "$PREFS_BUNDLE" ]; then
+    mkdir -p "$STAGE/Library/PreferenceBundles"
+    cp -R "$PREFS_BUNDLE" "$STAGE/Library/PreferenceBundles/"
+    chmod -R 0755 "$STAGE/Library/PreferenceBundles/ProxySharePrefs"
+    echo "已打包设置面板"
 else
-    echo "未找到 codesign，回退到 ldid"
-    LDID="${THEOS}/bin/ldid"
-    [ -x "$LDID" ] || LDID="$(command -v ldid || true)"
+    echo "警告: 未找到设置面板 bundle，将只打包守护进程"
+fi
+
+# ------------------------------------------------ 签名
+echo "=== 用 entitlements 签名 psd ==="
+if command -v codesign >/dev/null 2>&1; then
+    codesign --force --sign - --entitlements psd.entitlements \
+             "$STAGE/usr/libexec/psd" 2>&1 | head -3
+    echo "校验:"
+    codesign -d --entitlements - "$STAGE/usr/libexec/psd" 2>&1 | head -12
+else
+    echo "未找到 codesign，回退 ldid"
+    LDID="${THEOS}/bin/ldid"; [ -x "$LDID" ] || LDID="$(command -v ldid || true)"
     if [ -n "$LDID" ]; then
-        mkdir -p /tmp/signwork && rm -f /tmp/signwork/psd-*
+        mkdir -p /tmp/sg && rm -f /tmp/sg/psd-*
         for a in arm64 arm64e; do
-            lipo -thin "$a" "$STAGE/usr/libexec/psd" -output "/tmp/signwork/psd-$a" 2>/dev/null || continue
-            "$LDID" -S psd.entitlements "/tmp/signwork/psd-$a" || echo "  slice $a 签名失败"
+            lipo -thin "$a" "$STAGE/usr/libexec/psd" -output "/tmp/sg/psd-$a" 2>/dev/null || continue
+            "$LDID" -S psd.entitlements "/tmp/sg/psd-$a" || echo "  $a 失败"
         done
-        if [ -f /tmp/signwork/psd-arm64 ] && [ -f /tmp/signwork/psd-arm64e ]; then
-            lipo -create /tmp/signwork/psd-arm64 /tmp/signwork/psd-arm64e \
-                 -output "$STAGE/usr/libexec/psd"
+        if [ -f /tmp/sg/psd-arm64 ] && [ -f /tmp/sg/psd-arm64e ]; then
+            lipo -create /tmp/sg/psd-arm64 /tmp/sg/psd-arm64e -output "$STAGE/usr/libexec/psd"
         fi
     fi
 fi
 chmod 0755 "$STAGE/usr/libexec/psd"
 
+# 面板也要签名（否则 Settings 拒绝加载）
+if [ -d "$STAGE/Library/PreferenceBundles/ProxySharePrefs" ]; then
+    if command -v codesign >/dev/null 2>&1; then
+        codesign --force --sign - \
+                 "$STAGE/Library/PreferenceBundles/ProxySharePrefs/ProxySharePrefs" 2>&1 | head -2 || true
+    fi
+fi
+
+# ------------------------------------------------ 控制文件
 mkdir -p "$STAGE/DEBIAN"
 cp control "$STAGE/DEBIAN/control"
+sed -i.bak "s/^Version:.*/Version: ${VERSION}/" "$STAGE/DEBIAN/control"
+rm -f "$STAGE/DEBIAN/control.bak"
 cp DEBIAN/postinst "$STAGE/DEBIAN/postinst"
 cp DEBIAN/prerm "$STAGE/DEBIAN/prerm"
-chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 
 find "$STAGE" -type d -exec chmod 0755 {} \;
 find "$STAGE" -type f -name "*.plist" -exec chmod 0644 {} \;
+chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 chmod 0755 "$STAGE/usr/libexec/psd" "$STAGE/usr/libexec/psd-launcher"
 
-# 确认 DEBIAN 存在（dpkg-deb 要求）
-[ -f "$STAGE/DEBIAN/control" ] || { echo "错误: DEBIAN/control 缺失" >&2; exit 1; }
+[ -f "$STAGE/DEBIAN/control" ] || { echo "错误: control 缺失" >&2; exit 1; }
 
 DEB="packages/${NAME}_${VERSION}_${VARIANT}.deb"
 dpkg-deb -Zxz --root-owner-group -b "$STAGE" "$DEB"

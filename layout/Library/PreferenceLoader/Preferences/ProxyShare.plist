@@ -1,0 +1,9 @@
+{
+	entry = {
+		bundle = "ProxySharePrefs";
+		cell = PSLinkCell;
+		detail = "PSShareController";
+		label = "ProxyShare";
+		icon = "icon.png";
+	};
+}

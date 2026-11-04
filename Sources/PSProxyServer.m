@@ -485,7 +485,14 @@ static int PSListenOn(uint16_t port, NSString *bindAddr, NSString **errOut)
         char ip[64] = {0};
         inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
 
-        // 可选：只允许局域网来源
+        // ACL：不在白名单内的直接拒绝
+        if (!PSACLAllowsPeer(ip)) {
+            PSSharedStats().rejectedConnections++;
+            PSLog(@"[ACL] 拒绝来自 %s 的连接", ip);
+            close(c);
+            continue;
+        }
+
         PSSharedStats().acceptedConnections++;
 
         int clientFD = c;

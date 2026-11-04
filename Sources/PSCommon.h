@@ -9,6 +9,7 @@
 //     会自动走隧道，无需任何 hook、无需代理软件开端口。
 //  2. 本进程只负责：监听局域网端口 -> 解析 SOCKS5 / HTTP CONNECT -> connect 目标 -> 双向转发。
 //  3. 配置(config.plist) 与 运行状态(state.plist) **分两个文件**，互不覆盖。
+//  4. 运行期配置以内存为准，由控制端口(127.0.0.1)下发——避开 RootHide 的文件视图隔离。
 //
 
 #ifndef PS_COMMON_H
@@ -36,24 +37,54 @@
 // 默认值（避开 1080/1086/8118 等代理软件常用端口）
 #define PS_DEFAULT_SOCKS_PORT   47680
 #define PS_DEFAULT_HTTP_PORT    47681
+#define PS_DEFAULT_CTRL_PORT    47682
 #define PS_DEFAULT_BIND         @"0.0.0.0"
 
-// 日志上限（行）
+// 日志上限
 #define PS_LOG_MAX_LINES        600
 
-// 配置读取（每次读盘，避免 launchd 进程缓存旧值）
+// ---------------------------------------------------------------- 配置
+
+// 读取（内存优先，未命中再回落到文件/cfprefs）
 BOOL        PSConfigBool(NSString *key, BOOL def);
 NSInteger   PSConfigInt(NSString *key, NSInteger def);
 NSString   *PSConfigString(NSString *key, NSString *def);
 
-// 运行状态（守护进程写，面板读）
+// 写入内存（线程安全），并使 gConfigVersion 递增
+void        PSConfigSet(NSString *key, id value);
+
+// 从磁盘载入初始配置（守护进程启动时调用一次）
+void        PSConfigLoadFromFile(void);
+
+// 持久化到磁盘（尽力而为，失败不报错）
+BOOL        PSConfigSaveToFile(void);
+
+// 配置版本号：每次 set 递增，定时器靠它判断是否需要重启监听
+int         PSConfigVersion(void);
+
+// ACL 列表（逗号分隔字符串 <-> 数组）
+NSArray<NSString *> *PSConfigACLList(void);
+void                 PSConfigSetACLList(NSArray<NSString *> *list);
+
+// ---------------------------------------------------------------- ACL
+
+// 判断来源 IP 是否允许连接（未启用 ACL 时恒为 YES）
+BOOL PSACLAllowsPeer(const char *ipStr);
+
+// 校验单条规则（供面板/控制端口验证）
+BOOL PSACLValidRule(NSString *rule);
+
+// ---------------------------------------------------------------- 状态
+
 NSDictionary *PSReadState(void);
 void         PSWriteState(NSDictionary *state);
 
-// 日志（同时写文件与 stderr）
+// ---------------------------------------------------------------- 日志
+
 void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
 
-// 统计
+// ---------------------------------------------------------------- 统计
+
 @interface PSStats : NSObject
 @property (atomic, assign) uint64_t acceptedConnections;
 @property (atomic, assign) uint64_t activeConnections;
