@@ -9,11 +9,16 @@
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>当前配置</string>
-			<key>footerText</key><string>配置保存在 LaunchDaemon 的启动参数里。受 RootHide 沙盒限制，此处只做展示，修改请用下方的命令。</string>
+			<key>footerText</key><string>配置保存在 LaunchDaemon 的启动参数里。此处只做展示，修改请用下方的命令。</string>
 		</dict>
 		<dict>
 			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>状态</string>
+			<key>label</key><string>服务</string>
+			<key>get</key><string>statusValue:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>开关</string>
 			<key>get</key><string>enabledValue:</string>
 		</dict>
 		<dict>
@@ -37,7 +42,7 @@
 			<key>get</key><string>bindValue:</string>
 		</dict>
 
-		<!-- ================= 复制地址 ================= -->
+		<!-- ================= 复制 ================= -->
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>复制给别人用</string>
@@ -60,14 +65,14 @@
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>修改配置</string>
-			<key>footerText</key><string>打开终端（NewTerm / SSH）执行下面的命令，需要 root。\n\n改 SOCKS5 端口：\n  sudo psctl set socks 47690\n  sudo psctl restart\n\n改 HTTP 端口：\n  sudo psctl set http 47691\n  sudo psctl restart\n\n临时关闭：\n  sudo psctl off\n\n查看状态：\n  sudo psctl status</string>
+			<key>footerText</key><string>打开终端（NewTerm / SSH）执行，需要 root。&#10;&#10;改 SOCKS5 端口：&#10;sudo psctl set socks 47690&#10;sudo psctl restart&#10;&#10;改 HTTP 端口：&#10;sudo psctl set http 47691&#10;sudo psctl restart&#10;&#10;临时关闭：&#10;sudo psctl off&#10;&#10;查看状态：&#10;sudo psctl status</string>
 		</dict>
 
 		<!-- ================= 用法 ================= -->
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>怎么用</string>
-			<key>footerText</key><string>iOS 设备：Wi-Fi → 当前网络 → 配置代理 → 手动 → 填上面的「HTTP 地址」。\n\nAndroid / Clash：加 SOCKS5 节点，填「SOCKS5 地址」。\n\n前提：\n· 本机的代理软件（Shadowrocket 等）要保持运行\n· 两台设备在同一个 Wi-Fi 下\n· 出口 IP 与本机一致，即为你代理的出口</string>
+			<key>footerText</key><string>iOS 设备：Wi-Fi → 当前网络 → 配置代理 → 手动 → 填上面的「HTTP 地址」。&#10;&#10;Android / Clash：加 SOCKS5 节点，填「SOCKS5 地址」。&#10;&#10;前提：&#10;· 本机的代理软件（闪连等）要保持运行&#10;· 两台设备在同一个 Wi-Fi 下</string>
 		</dict>
 
 	</array>
