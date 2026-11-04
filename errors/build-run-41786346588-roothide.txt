@@ -1,0 +1,44 @@
+=== 构建变体: roothide ===
+[0m[1m../PSCTL/main.m:97:66: [0m[0;1;31merror: [0m[1mincompatible pointer types initializing 'const char *' with an expression of type 'NSString *' [-Werror,-Wincompatible-pointer-types][0m
+    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, DAEMON_PLIST, NULL };
+[0;1;32m                                                                 ^~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:29:22: [0m[0;1;30mnote: [0mexpanded from macro 'DAEMON_PLIST'[0m
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+[0;1;32m                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:100:59: [0m[0;1;31merror: [0m[1mincompatible pointer types initializing 'const char *' with an expression of type 'NSString *' [-Werror,-Wincompatible-pointer-types][0m
+        const char *load[] = { "launchctl", "load", "-w", DAEMON_PLIST, NULL };
+[0;1;32m                                                          ^~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:29:22: [0m[0;1;30mnote: [0mexpanded from macro 'DAEMON_PLIST'[0m
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+[0;1;32m                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:94:67: [0m[0;1;31merror: [0m[1mincompatible pointer types initializing 'const char *' with an expression of type 'NSString *' [-Werror,-Wincompatible-pointer-types][0m
+    const char *bootout[] = { "launchctl", "bootout", SVC_DOMAIN, DAEMON_PLIST, NULL };
+[0;1;32m                                                                  ^~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:29:22: [0m[0;1;30mnote: [0mexpanded from macro 'DAEMON_PLIST'[0m
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+[0;1;32m                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:97:66: [0m[0;1;31merror: [0m[1mincompatible pointer types initializing 'const char *' with an expression of type 'NSString *' [-Werror,-Wincompatible-pointer-types][0m
+    const char *boot[] = { "launchctl", "bootstrap", SVC_DOMAIN, DAEMON_PLIST, NULL };
+[0;1;32m                                                                 ^~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:29:22: [0m[0;1;30mnote: [0mexpanded from macro 'DAEMON_PLIST'[0m
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+[0;1;32m                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:100:59: [0m[0;1;31merror: [0m[1mincompatible pointer types initializing 'const char *' with an expression of type 'NSString *' [-Werror,-Wincompatible-pointer-types][0m
+        const char *load[] = { "launchctl", "load", "-w", DAEMON_PLIST, NULL };
+[0;1;32m                                                          ^~~~~~~~~~~~
+[0m[1m../PSCTL/main.m:29:22: [0m[0;1;30mnote: [0mexpanded from macro 'DAEMON_PLIST'[0m
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
+[0;1;32m                     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[0m3 errors generated.
+make[4]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64/../PSCTL/main.m.0a067d17.o] Error 1
+make[3]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64/psctl] Error 2
+make[3]: *** Waiting for unfinished jobs....
+3 errors generated.
+make[4]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64e/../PSCTL/main.m.9c335ead.o] Error 1
+make[3]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64e/psctl] Error 2
+make[2]: *** [internal-tool-all_] Error 2
+make[1]: *** [psctl.all.tool.variables] Error 2
+make: *** [internal-all] Error 2
+psd   = .theos/obj/psd
+psctl = 未找到
+错误: 构建产物缺失
