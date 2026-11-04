@@ -188,7 +188,15 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
 
     // 关键：NSUserDefaults 写的文件权限是 0600（只有 mobile 能读），
     // 而 psd 以 root 运行且受沙盒限制，读不到 → 放开成 0644。
+    // synchronize 之后文件可能仍在异步落盘，所以延时多点补几次。
     [self fixPrefsPermissions];
+    for (int i = 1; i <= 4; i++) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                     (int64_t)(i * 0.25 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [self fixPrefsPermissions];
+        });
+    }
 
     [super setPreferenceValue:value specifier:specifier];
 

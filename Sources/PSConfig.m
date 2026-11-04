@@ -26,7 +26,7 @@ static void PSConfigEnsureMem(void)
 // RootHide 下 Settings（mobile）写的偏好，真实位置在 AppGroup 里：
 //   /rootfs/private/var/mobile/Containers/Shared/AppGroup/.jbroot-XXXX/var/mobile/Library/Preferences/
 // 文件名里带 .jbroot-XXXX，每台设备不同，所以启动时扫一次缓存。
-static NSArray *PSPrefsCandidates(void)
+static NSArray *PSPrefsCandidatesRaw(void)
 {
     static NSArray *cached = nil;
     static dispatch_once_t once;
@@ -42,13 +42,32 @@ static NSArray *PSPrefsCandidates(void)
                                                                             error:NULL];
         for (NSString *d in dirs) {
             if (![d hasPrefix:@".jbroot-"]) continue;
-            [arr addObject:[NSString stringWithFormat:
-                @"%@/%@/var/mobile/Library/Preferences/com.axs.proxyshare.plist", base, d]];
+            NSString *p = [NSString stringWithFormat:
+                @"%@/%@/var/mobile/Library/Preferences/com.axs.proxyshare.plist", base, d];
+            // 面板用 NSUserDefaults 写，权限常是 0600；psd 是 root + 沙盒，
+            // 读不到就打不开。这里以 root 身份兜底修正。
+            if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                chmod(p.fileSystemRepresentation, 0644);
+            }
+            [arr addObject:p];
         }
 
         cached = arr;
     });
     return cached;
+}
+
+static NSArray *PSPrefsCandidates(void)
+{
+    NSArray *list = PSPrefsCandidatesRaw();
+    // 每次读取前修一次权限：面板用 NSUserDefaults 写，权限常为 0600，
+    // 而 psd 是 root + 沙盒身份，读不到就打不开配置。
+    for (NSString *p in list) {
+        if (access(p.fileSystemRepresentation, F_OK) == 0) {
+            chmod(p.fileSystemRepresentation, 0644);
+        }
+    }
+    return list;
 }
 
 static id PSConfigFromFile(NSString *key)

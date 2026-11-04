@@ -481,7 +481,19 @@ static int PSListenOn(uint16_t port, NSString *bindAddr, NSString **errOut)
 
 - (void)acceptLoopOnFD:(int)fd name:(NSString *)name
 {
+    // 用 select + 超时取代阻塞 accept：
+    // 这样 stop 时置 _running=NO 能在 200ms 内退出循环，
+    // 而不是卡在 accept() 里继续占用端口。
     while (_running && fd >= 0) {
+        fd_set rs; FD_ZERO(&rs); FD_SET(fd, &rs);
+        struct timeval tv = { 0, 200 * 1000 };   // 200ms
+        int sel = select(fd + 1, &rs, NULL, NULL, &tv);
+        if (sel < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (sel == 0) continue;                  // 超时，回头检查 _running
+
         struct sockaddr_in peer;
         socklen_t plen = sizeof(peer);
         int c = accept(fd, (struct sockaddr *)&peer, &plen);
@@ -562,9 +574,15 @@ static int PSListenOn(uint16_t port, NSString *bindAddr, NSString **errOut)
 - (void)stop
 {
     _running = NO;
+
+    // 先 shutdown 唤醒可能阻塞的 accept，再 close
+    if (_socksFD >= 0) { shutdown(_socksFD, SHUT_RDWR); }
+    if (_httpFD  >= 0) { shutdown(_httpFD,  SHUT_RDWR); }
+
     PSCloseFD(&_socksFD);
     PSCloseFD(&_httpFD);
-    PSLog(@"已停止监听");
+
+    PSLog(@"已停止监听，端口已释放");
 }
 
 @end
