@@ -1,11 +1,6 @@
 #!/var/jb/usr/bin/bash
-# ProxyShare 启动器
-# RootHide 下 root 守护进程与 shell 的路径视图可能不同，
-# 因此本脚本只负责解析出 psd 的真实路径，所有参数原样透传。
-
+# ProxyShare 启动器：解析 psd 真实路径，参数透传
 JBROOT="$(readlink -f /var/jb 2>/dev/null || echo /)"
-
 BIN="$JBROOT/usr/libexec/psd"
 [ -x "$BIN" ] || BIN=/usr/libexec/psd
-
 exec "$BIN" "$@"

@@ -9,5 +9,5 @@ launchctl unload -w "$DAEMON" 2>/dev/null || true
 # 软链接（保留用户数据，只删链接）
 rm -f /var/mobile/Library/ProxyShare 2>/dev/null || true
 
-echo "[ProxyShare] 已停止（配置与日志保留在 /Library/ProxyShare）"
+echo "[ProxyShare] 已停止（配置与日志保留在 /var/tmp/ProxyShare）"
 exit 0

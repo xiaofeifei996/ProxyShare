@@ -4,6 +4,7 @@ INSTALL_TARGET_PROCESSES =
 
 include $(THEOS)/makefiles/common.mk
 
+# ============================================================ 守护进程
 TOOL_NAME = psd
 
 psd_FILES = Daemon/main.m \
@@ -18,10 +19,18 @@ psd_CODESIGN_FLAGS = -Spsd.entitlements
 
 include $(THEOS_MAKE_PATH)/tool.mk
 
-# ============================================================ 设置面板
-# 独立 Preferences bundle，由 Settings.app 在 mobile 用户下加载。
-# 它不直接读写文件，而是通过 127.0.0.1 控制端口与 root 守护进程通信。
+# ============================================================ 命令行工具
+TOOL_NAME = psctl
 
+psctl_FILES = PSCTL/main.m
+psctl_FRAMEWORKS = Foundation
+psctl_CFLAGS = -fobjc-arc -O2 -Wall
+psctl_LDFLAGS = -lobjc
+psctl_INSTALL_PATH = /usr/bin
+
+include $(THEOS_MAKE_PATH)/tool.mk
+
+# ============================================================ 设置面板
 BUNDLE_NAME = ProxySharePrefs
 ProxySharePrefs_INSTALL_PATH = /Library/PreferenceBundles
 ProxySharePrefs_FILES = Prefs/PSShareController.m
@@ -31,6 +40,3 @@ ProxySharePrefs_CFLAGS = -fobjc-arc -I Sources -O2 -Wall
 ProxySharePrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 include $(THEOS_MAKE_PATH)/bundle.mk
-
-after-ProxySharePrefs-all::
-	@echo "=== ProxySharePrefs bundle 构建完成 ==="

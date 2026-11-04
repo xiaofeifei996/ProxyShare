@@ -26,6 +26,10 @@ if [ ! -f .theos/obj/psd ]; then
     echo "错误: 未生成 .theos/obj/psd" >&2
     exit 1
 fi
+if [ ! -f .theos/obj/psctl ]; then
+    echo "错误: 未生成 .theos/obj/psctl" >&2
+    exit 1
+fi
 
 # Theos 会把 bundle 放在 .theos/obj/ 下
 PREFS_BUNDLE="$(find .theos -name 'ProxySharePrefs.bundle' -type d 2>/dev/null | head -1)"
@@ -36,8 +40,9 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -R layout/* "$STAGE/"
 
-mkdir -p "$STAGE/usr/libexec"
-cp .theos/obj/psd "$STAGE/usr/libexec/psd"
+mkdir -p "$STAGE/usr/libexec" "$STAGE/usr/bin"
+cp .theos/obj/psd   "$STAGE/usr/libexec/psd"
+cp .theos/obj/psctl "$STAGE/usr/bin/psctl"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 安装设置面板 bundle
@@ -82,6 +87,11 @@ else
     fi
 fi
 chmod 0755 "$STAGE/usr/libexec/psd"
+
+chmod 0755 "$STAGE/usr/bin/psctl"
+if command -v codesign >/dev/null 2>&1; then
+    codesign --force --sign - "$STAGE/usr/bin/psctl" 2>&1 | head -2 || true
+fi
 
 # 面板也要签名（否则 Settings 拒绝加载）
 if [ -d "$STAGE/Library/PreferenceBundles/ProxySharePrefs" ]; then

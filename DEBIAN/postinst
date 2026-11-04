@@ -2,7 +2,7 @@
 # 安装后：准备目录、注册守护进程、刷新设置面板
 set -e
 
-SHARE=/Library/ProxyShare
+SHARE=/var/tmp/ProxyShare
 DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
 
 mkdir -p "$SHARE"
@@ -40,6 +40,7 @@ killall -9 Preferences 2>/dev/null || true
 
 echo "[ProxyShare] 安装完成"
 echo "  数据目录: $SHARE"
+echo "  命令行:   sudo psctl status"
 echo "  端口: SOCKS5 47680 / HTTP 47681 / 控制 47682(仅本机)"
 echo "  设置: 设置 → ProxyShare"
 exit 0

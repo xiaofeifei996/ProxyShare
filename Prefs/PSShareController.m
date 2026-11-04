@@ -1,80 +1,29 @@
 //
-//  PSShareController.m — 设置面板
+//  PSShareController.m — 设置面板（只读展示）
 //
-//  面板运行在 mobile 用户下，不直接读写文件，而是通过
-//  127.0.0.1:<ctrlPort> 的 JSON 控制协议与 root 守护进程通信。
-//  这样完全绕开 RootHide 的文件视图隔离问题。
+//  背景：RootHide 下 root 守护进程与 Settings（mobile）的文件系统、网络栈
+//  都是隔离的（/var/tmp 在两边是不同目录；回环端口互不可见），
+//  面板无法把配置可靠地传给守护进程。
+//
+//  因此面板只做三件事：
+//    1. 展示当前配置（读 LaunchDaemon plist，两用户都可读）
+//    2. 展示本机可用的代理地址，方便复制
+//    3. 给出改配置的正确命令（psctl）
 //
 
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 #import <UIKit/UIKit.h>
-#include <sys/socket.h>
+
+#include <ifaddrs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <unistd.h>
 #include <string.h>
 
-#define PS_CTRL_SOCKET "/Library/ProxyShare/control.sock"
-#define PS_PREFS_ID   @"com.axs.proxyshare"
-
-// ---------------------------------------------------------------- 控制通道
-
-static NSInteger gCmdSeq = 0;
-
-// 通过文件与守护进程通信：
-//   写 command.plist {"id":N,...} → 等 response.plist 里 id==N
-static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
-{
-    NSString *cmdPath  = @"/Library/ProxyShare/command.plist";
-    NSString *respPath = @"/Library/ProxyShare/response.plist";
-
-    // 目录可能还没建（守护进程未运行过）
-    [[NSFileManager defaultManager] createDirectoryAtPath:@"/Library/ProxyShare"
-                              withIntermediateDirectories:YES attributes:nil error:NULL];
-
-    // 用时间戳做序号，避免与上一次冲突
-    NSInteger myID = (NSInteger)([[NSDate date] timeIntervalSince1970] * 1000) + (gCmdSeq++ % 1000);
-
-    NSMutableDictionary *payload = [req mutableCopy];
-    payload[@"id"] = @(myID);
-
-    NSError *werr = nil;
-    NSData *data = [NSPropertyListSerialization dataWithPropertyList:payload
-                                                              format:NSPropertyListXMLFormat_v1_0
-                                                             options:0
-                                                               error:&werr];
-    if (!data || ![data writeToFile:cmdPath atomically:YES]) {
-        return @{ @"ok": @NO, @"error": @"无法写入命令文件（权限不足？）" };
-    }
-    chmod(cmdPath.fileSystemRepresentation, 0666);
-
-    // 轮询等响应
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
-    while ([deadline timeIntervalSinceNow] > 0) {
-        NSDictionary *resp = [NSDictionary dictionaryWithContentsOfFile:respPath];
-        if ([resp isKindOfClass:[NSDictionary class]] &&
-            [resp[@"id"] integerValue] == myID) {
-            return resp;
-        }
-        usleep(120 * 1000);   // 120ms
-    }
-
-    // 超时：退一步，看看能不能直接读 state.plist 兜底
-    NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:@"/Library/ProxyShare/state.plist"];
-    if ([st isKindOfClass:[NSDictionary class]] && st[@"pid"]) {
-        NSMutableDictionary *d = [st mutableCopy];
-        d[@"ok"] = @YES;
-        return d;
-    }
-    return @{ @"ok": @NO, @"error": @"守护进程未响应（可能未运行）" };
-}
-
-// ---------------------------------------------------------------- 面板
+#define DAEMON_PLIST @"/Library/LaunchDaemons/com.axs.proxyshare.plist"
 
 @interface PSShareController : PSListController
-@property (nonatomic, strong) NSDictionary *status;
+@property (nonatomic, strong) NSDictionary *cfg;
 @end
 
 @implementation PSShareController
@@ -88,115 +37,32 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self refreshStatus];
-    [self startPolling];
+    [self reloadConfig];
 }
 
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [NSObject cancelPreviousPerformRequestsWithTarget:self];
-}
+- (void)reloadConfig {
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:DAEMON_PLIST];
+    NSArray *args = d[@"ProgramArguments"];
+    NSMutableDictionary *m = [NSMutableDictionary dictionary];
 
-- (void)startPolling {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self];
-    [self performSelector:@selector(pollTick) withObject:nil afterDelay:3.0];
-}
-
-- (void)pollTick {
-    if (!self.isViewLoaded || !self.view.window) return;
-    [self refreshStatus];
-    [self startPolling];
-}
-
-- (void)refreshStatus {
-    NSDictionary *s = PSCallControl(@{ @"cmd": @"status" }, 4.0);
-    self.status = s;
-
-    [self reloadSpecifiers];
-
-    // 顶部状态说明
-    NSString *footer;
-    if ([s[@"ok"] boolValue]) {
-        double up   = [s[@"bytesUp"] doubleValue];
-        double down = [s[@"bytesDown"] doubleValue];
-        footer = [NSString stringWithFormat:
-                  @"运行中 · pid %@\n连接 %@（活跃 %@，拒绝 %@）\n流量 ↑%.1f KB  ↓%.1f KB",
-                  s[@"pid"], s[@"connections"], s[@"active"], s[@"rejected"],
-                  up / 1024.0, down / 1024.0];
+    if ([args isKindOfClass:[NSArray class]]) {
+        m[@"socks"] = [self valueAfterFlag:@"--socks" in:args] ?: @"47680";
+        m[@"http"]  = [self valueAfterFlag:@"--http"  in:args] ?: @"47681";
+        m[@"bind"]  = [self valueAfterFlag:@"--bind"  in:args] ?: @"0.0.0.0";
+        m[@"enabled"] = [args containsObject:@"--off"] ? @"否" : @"是";
     } else {
-        footer = [NSString stringWithFormat:@"未运行：%@\n\n请确认已安装并加载守护进程，或重启设备后重试。",
-                  s[@"error"] ?: @"未知"];
+        m[@"error"] = @"未找到守护进程配置";
     }
-    PSSpecifier *sp = [self specifierForID:@"statusGroup"];
-    if (sp) [sp setProperty:footer forKey:@"footerText"];
+    m[@"ip"] = [self primaryIPv4] ?: @"（未连接 Wi-Fi）";
+
+    self.cfg = m;
+    [self reloadSpecifiers];
 }
 
-// ---------------------------------------------------------------- 取值
-
-- (id)readPreferenceValue:(PSSpecifier *)specifier {
-    NSString *key = specifier.properties[@"key"];
-
-    // 优先用控制端口返回的实时值
-    if (self.status && self.status[key] && ![self.status[key] isKindOfClass:[NSNull class]])
-        return self.status[key];
-
-    id v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-    return v ?: specifier.properties[@"default"];
-}
-
-- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
-    NSString *key = specifier.properties[@"key"];
-    if (!key) { [super setPreferenceValue:value specifier:specifier]; return; }
-
-    // 本地存一份让面板回显
-    [[NSUserDefaults standardUserDefaults] setObject:value forKey:key];
-
-    NSDictionary *resp = PSCallControl(@{ @"cmd": @"setConfig",
-                                          @"values": @{ key: value } }, 6.0);
-    if (![resp[@"ok"] boolValue]) {
-        UIAlertController *al = [UIAlertController
-            alertControllerWithTitle:@"保存失败"
-                             message:resp[@"error"] ?: @"守护进程未响应"
-                      preferredStyle:UIAlertControllerStyleAlert];
-        [al addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault
-                                            handler:nil]];
-        [self presentViewController:al animated:YES completion:nil];
-    }
-
-    [super setPreferenceValue:value specifier:specifier];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        [self refreshStatus];
-    });
-}
-
-// ---------------------------------------------------------------- 状态显示
-
-- (id)statusValue:(PSSpecifier *)specifier {
-    NSDictionary *s = self.status;
-    if (![s[@"ok"] boolValue]) return s[@"error"] ?: @"未运行";
-    return [NSString stringWithFormat:@"运行中（pid %@）", s[@"pid"]];
-}
-
-- (id)trafficValue:(PSSpecifier *)specifier {
-    NSDictionary *s = self.status;
-    if (![s[@"ok"] boolValue]) return @"—";
-    double up   = [s[@"bytesUp"] doubleValue];
-    double down = [s[@"bytesDown"] doubleValue];
-    return [NSString stringWithFormat:@"↑ %.1f KB   ↓ %.1f KB", up/1024.0, down/1024.0];
-}
-
-- (id)connValue:(PSSpecifier *)specifier {
-    NSDictionary *s = self.status;
-    if (![s[@"ok"] boolValue]) return @"—";
-    return [NSString stringWithFormat:@"总计 %@ · 活跃 %@ · 拒绝 %@",
-            s[@"connections"], s[@"active"], s[@"rejected"]];
-}
-
-- (id)localIPValue:(PSSpecifier *)specifier {
-    // 取 en0 的 IPv4（面板在 mobile 下，可以正常枚举接口）
-    NSString *ip = [self primaryIPv4];
-    return ip.length ? ip : @"（未连接 Wi-Fi）";
+- (NSString *)valueAfterFlag:(NSString *)flag in:(NSArray *)args {
+    NSUInteger i = [args indexOfObject:flag];
+    if (i == NSNotFound || i + 1 >= args.count) return nil;
+    return args[i + 1];
 }
 
 - (NSString *)primaryIPv4 {
@@ -215,28 +81,39 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
     return found;
 }
 
-// ---------------------------------------------------------------- 操作按钮
+// ---------------------------------------------------------------- 展示项
 
-- (void)restartDaemon:(PSSpecifier *)specifier {
-    NSDictionary *r = PSCallControl(@{ @"cmd": @"reload" }, 3.0);
-    NSString *msg = [r[@"ok"] boolValue] ? @"已重启监听" : (r[@"error"] ?: @"失败");
-    [self toast:msg];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{ [self refreshStatus]; });
+- (id)enabledValue:(PSSpecifier *)sp   { return self.cfg[@"enabled"] ?: @"—"; }
+- (id)ipValue:(PSSpecifier *)sp        { return self.cfg[@"ip"] ?: @"—"; }
+- (id)socksValue:(PSSpecifier *)sp     { return self.cfg[@"socks"] ?: @"—"; }
+- (id)httpValue:(PSSpecifier *)sp      { return self.cfg[@"http"] ?: @"—"; }
+- (id)bindValue:(PSSpecifier *)sp      { return self.cfg[@"bind"] ?: @"—"; }
+
+- (id)socksAddr:(PSSpecifier *)sp {
+    return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"socks"] ?: @"?"];
+}
+- (id)httpAddr:(PSSpecifier *)sp {
+    return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"http"] ?: @"?"];
 }
 
-- (void)resetStats:(PSSpecifier *)specifier {
-    PSCallControl(@{ @"cmd": @"resetStats" }, 3.0);
-    [self refreshStatus];
+// 点一下复制
+- (void)copySocks:(PSSpecifier *)sp {
+    [self copy:[self socksAddr:sp]];
+}
+- (void)copyHTTP:(PSSpecifier *)sp {
+    [self copy:[self httpAddr:sp]];
 }
 
-- (void)toast:(NSString *)msg {
+- (void)copy:(NSString *)text {
+    [UIPasteboard generalPasteboard].string = text;
     UIAlertController *al = [UIAlertController alertControllerWithTitle:nil
-                                                               message:msg
+                                                               message:[NSString stringWithFormat:@"已复制 %@", text]
                                                         preferredStyle:UIAlertControllerStyleAlert];
     [self presentViewController:al animated:YES completion:^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{ [al dismissViewControllerAnimated:YES completion:nil]; });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [al dismissViewControllerAnimated:YES completion:nil];
+        });
     }];
 }
 
