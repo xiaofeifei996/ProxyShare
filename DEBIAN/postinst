@@ -1,52 +1,44 @@
 #!/bin/bash
-# 安装后：修正 RootHide 路径、注册守护进程
+# 安装后：准备目录、注册守护进程
 set -e
 
-JBROOT="$(readlink -f /var/jb 2>/dev/null || echo /)"
-# RootHide 下 /var/jb 就是 /，真实根在 .jbroot-XXXX
-if [ -d /var/containers/Bundle/Application ]; then
-  for d in /var/containers/Bundle/Application/.jbroot-*; do
-    [ -d "$d" ] && JBROOT="$d" && break
-  done
-fi
-echo "[ProxyShare] jbroot = $JBROOT"
+SHARE=/Library/ProxyShare
 
-DAEMON="$JBROOT/Library/LaunchDaemons/com.axs.proxyshare.plist"
+# 1) 建共享目录（root 守护进程可写；0777 让 mobile 也能读日志）
+mkdir -p "$SHARE"
+chown root:wheel "$SHARE" 2>/dev/null || true
+chmod 0777 "$SHARE"
 
-# 若 plist 里的路径不是绝对真实路径，改写它（RootHide launchd 要求绝对路径）
-if [ -f "$DAEMON" ] && [ "$JBROOT" != "/" ]; then
-  if ! grep -q "$JBROOT" "$DAEMON" 2>/dev/null; then
-    sed -i '' "s#<string>/usr/libexec/psd</string>#<string>${JBROOT}/usr/libexec/psd</string>#" "$DAEMON" 2>/dev/null || \
-    sed -i "s#<string>/usr/libexec/psd</string>#<string>${JBROOT}/usr/libexec/psd</string>#" "$DAEMON"
-    echo "[ProxyShare] 已改写守护进程路径"
-  fi
+# 2) 给用户一个方便找的位置（软链接，不占空间）
+mkdir -p /var/mobile/Library 2>/dev/null || true
+if [ ! -e /var/mobile/Library/ProxyShare ]; then
+  ln -s "$SHARE" /var/mobile/Library/ProxyShare 2>/dev/null || true
 fi
 
-# 建共享目录
-mkdir -p /var/mobile/Library/ProxyShare
-chown mobile:mobile /var/mobile/Library/ProxyShare 2>/dev/null || true
-chmod 0755 /var/mobile/Library/ProxyShare
-
-# 默认配置：启用 + 端口
-if [ ! -f /var/mobile/Library/ProxyShare/state.plist ]; then
-  cat > /var/mobile/Library/ProxyShare/state.plist <<'PLIST'
+# 3) 默认配置（不覆盖已有）
+if [ ! -f "$SHARE/config.plist" ]; then
+  cat > "$SHARE/config.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>enabled</key><true/>
-	<key>socksPort</key><integer>1086</integer>
-	<key>httpPort</key><integer>8118</integer>
+	<key>socksPort</key><integer>47680</integer>
+	<key>httpPort</key><integer>47681</integer>
+	<key>bindAddress</key><string>0.0.0.0</string>
 </dict>
 </plist>
 PLIST
-  chown mobile:mobile /var/mobile/Library/ProxyShare/state.plist 2>/dev/null || true
-  chmod 0644 /var/mobile/Library/ProxyShare/state.plist
+  chmod 0666 "$SHARE/config.plist"
 fi
 
-# 启动守护进程（用 launcher 解析 RootHide 路径）
-launchctl bootout system "$DAEMON" 2>/dev/null || true
-launchctl bootstrap system "$DAEMON" 2>/dev/null || launchctl load -w "$DAEMON" 2>/dev/null || true
+# 4) 注册并启动
+DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
+if [ -f "$DAEMON" ]; then
+  launchctl bootout system "$DAEMON" 2>/dev/null || true
+  sleep 1
+  launchctl bootstrap system "$DAEMON" 2>/dev/null || launchctl load -w "$DAEMON" 2>/dev/null || true
+fi
 
-echo "[ProxyShare] 安装完成"
+echo "[ProxyShare] 安装完成，日志目录 $SHARE"
 exit 0

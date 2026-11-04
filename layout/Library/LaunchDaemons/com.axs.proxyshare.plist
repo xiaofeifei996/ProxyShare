@@ -25,9 +25,9 @@
 	<key>Umask</key>
 	<integer>18</integer>
 	<key>StandardOutPath</key>
-	<string>/var/mobile/Library/ProxyShare/launchd.out.log</string>
+	<string>/Library/ProxyShare/launchd.out.log</string>
 	<key>StandardErrorPath</key>
-	<string>/var/mobile/Library/ProxyShare/launchd.err.log</string>
+	<string>/Library/ProxyShare/launchd.err.log</string>
 	<key>SoftResourceLimits</key>
 	<dict>
 		<key>NumberOfFiles</key>
