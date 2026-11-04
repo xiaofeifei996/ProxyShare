@@ -35,12 +35,28 @@ cp .theos/obj/psd "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
-# 用 entitlements 重新签名（关键：脱离 App 沙盒，否则 /Library 等路径不可写）
+# 用 entitlements 重新签名（关键：脱离 App 沙盒，否则 /var/tmp 等路径不可写）
 echo "=== 用 entitlements 签名 psd ==="
 if command -v ldid >/dev/null 2>&1; then
-    ldid -S psd.entitlements "$STAGE/usr/libexec/psd"
+    # fat 二进制需要 lipo 拆分/合并（ldid 对已签名的 fat 直接签名会 assert）
+    if lipo -info "$STAGE/usr/libexec/psd" 2>/dev/null | grep -q "arm64e"; then
+        echo "  fat 二进制，拆分后分别签名"
+        mkdir -p /tmp/signwork
+        rm -f /tmp/signwork/psd-*
+        lipo -thin arm64  "$STAGE/usr/libexec/psd" -output /tmp/signwork/psd-arm64
+        lipo -thin arm64e "$STAGE/usr/libexec/psd" -output /tmp/signwork/psd-arm64e
+        for a in arm64 arm64e; do
+            ldid -S psd.entitlements /tmp/signwork/psd-$a
+        done
+        lipo -create /tmp/signwork/psd-arm64 /tmp/signwork/psd-arm64e \
+             -output "$STAGE/usr/libexec/psd"
+        rm -rf /tmp/signwork
+    else
+        ldid -S psd.entitlements "$STAGE/usr/libexec/psd"
+    fi
+    chmod 0755 "$STAGE/usr/libexec/psd"
     echo "签名完成，校验："
-    ldid -e "$STAGE/usr/libexec/psd" | head -20
+    ldid -e "$STAGE/usr/libexec/psd" 2>&1 | head -20 || true
 else
     echo "警告: 未找到 ldid，跳过签名"
 fi
