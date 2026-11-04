@@ -37,37 +37,30 @@ chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 用 entitlements 重新签名（关键：脱离 App 沙盒，否则 /var/tmp 等路径不可写）
 echo "=== 用 entitlements 签名 psd ==="
-LDID="${THEOS}/bin/ldid"
-[ -x "$LDID" ] || LDID="$(command -v ldid || true)"
-LIPO="$(command -v lipo || true)"
-echo "ldid=$LDID"
-echo "lipo=$LIPO"
-
-if [ -n "$LDID" ] && [ -x "$LDID" ]; then
-    mkdir -p /tmp/signwork
-    rm -f /tmp/signwork/psd-*
-    # 先去掉原有签名再签（避免 assert）
-    "$LDID" -C 1>/dev/null 2>&1 || true
-    for a in arm64 arm64e; do
-        if "$LIPO" -thin "$a" "$STAGE/usr/libexec/psd" -output "/tmp/signwork/psd-$a" 2>/dev/null; then
-            echo "  签名 slice $a"
-            "$LDID" -S psd.entitlements "/tmp/signwork/psd-$a" && echo "    ok" || echo "    FAILED"
-        fi
-    done
-    if [ -f /tmp/signwork/psd-arm64 ]; then
-        if [ -f /tmp/signwork/psd-arm64e ]; then
-            "$LIPO" -create /tmp/signwork/psd-arm64 /tmp/signwork/psd-arm64e \
-                 -output "$STAGE/usr/libexec/psd"
-        else
-            cp /tmp/signwork/psd-arm64 "$STAGE/usr/libexec/psd"
-        fi
-        chmod 0755 "$STAGE/usr/libexec/psd"
-    fi
-    echo "校验 entitlements:"
-    "$LDID" -e "$STAGE/usr/libexec/psd" 2>&1 | head -15 || echo "(读取失败)"
+# 优先用 macOS 原生 codesign（对 fat 二进制支持好，不会像 ldid 那样 assert）
+if command -v codesign >/dev/null 2>&1; then
+    echo "使用 codesign"
+    codesign --force --sign - --entitlements psd.entitlements \
+             "$STAGE/usr/libexec/psd" 2>&1 | head -5
+    echo "校验:"
+    codesign -d --entitlements - "$STAGE/usr/libexec/psd" 2>&1 | head -20
 else
-    echo "警告: 未找到 ldid，跳过签名"
+    echo "未找到 codesign，回退到 ldid"
+    LDID="${THEOS}/bin/ldid"
+    [ -x "$LDID" ] || LDID="$(command -v ldid || true)"
+    if [ -n "$LDID" ]; then
+        mkdir -p /tmp/signwork && rm -f /tmp/signwork/psd-*
+        for a in arm64 arm64e; do
+            lipo -thin "$a" "$STAGE/usr/libexec/psd" -output "/tmp/signwork/psd-$a" 2>/dev/null || continue
+            "$LDID" -S psd.entitlements "/tmp/signwork/psd-$a" || echo "  slice $a 签名失败"
+        done
+        if [ -f /tmp/signwork/psd-arm64 ] && [ -f /tmp/signwork/psd-arm64e ]; then
+            lipo -create /tmp/signwork/psd-arm64 /tmp/signwork/psd-arm64e \
+                 -output "$STAGE/usr/libexec/psd"
+        fi
+    fi
 fi
+chmod 0755 "$STAGE/usr/libexec/psd"
 
 mkdir -p "$STAGE/DEBIAN"
 cp control "$STAGE/DEBIAN/control"
