@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
 
             char probePath[512];
             const char *cands[] = {
-                "/var/tmp/ProxyShare",
+                "/Library/ProxyShare",
                 "/var/root/ProxyShare",
                 "/Library/ProxyShare",
                 NULL
@@ -201,15 +201,15 @@ int main(int argc, char *argv[])
             fprintf(stderr, "[DIAG] stat(目录)=%d uid=%d mode=%o\n",
                     st1, st1 == 0 ? st.st_uid : -1, st1 == 0 ? (st.st_mode & 07777) : 0);
 
-            FILE *t = fopen("/var/tmp/ProxyShare/_diag", "w");
+            FILE *t = fopen("/Library/ProxyShare/_diag", "w");
             fprintf(stderr, "[DIAG] fopen(_diag)=%s\n", t ? "ok" : strerror(errno));
             if (t) fclose(t);
 
-            NSDictionary *probe = [NSDictionary dictionaryWithContentsOfFile:@"/var/tmp/ProxyShare/command.plist"];
+            NSDictionary *probe = [NSDictionary dictionaryWithContentsOfFile:@"/Library/ProxyShare/command.plist"];
             fprintf(stderr, "[DIAG] 读 command.plist=%s\n",
                     probe ? "ok" : "nil/失败");
 
-            BOOL wr = [@{@"x":@1} writeToFile:@"/var/tmp/ProxyShare/_diag.plist" atomically:YES];
+            BOOL wr = [@{@"x":@1} writeToFile:@"/Library/ProxyShare/_diag.plist" atomically:YES];
             fprintf(stderr, "[DIAG] 写 plist=%s\n", wr ? "ok" : "失败");
             (void)n; (void)real;
         }

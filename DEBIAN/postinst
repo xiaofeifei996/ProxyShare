@@ -2,7 +2,7 @@
 # 安装后：准备目录、注册守护进程、刷新设置面板
 set -e
 
-SHARE=/var/tmp/ProxyShare
+SHARE=/Library/ProxyShare
 DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
 
 mkdir -p "$SHARE"

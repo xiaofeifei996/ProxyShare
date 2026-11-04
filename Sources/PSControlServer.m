@@ -3,7 +3,7 @@
 //
 //  RootHide 下 root 与 mobile 的网络栈隔离（回环端口互不可见），
 //  Unix socket 也会被沙盒重定向，实测都不可用。
-//  但 /var/tmp/ProxyShare 目录是两用户真正共享的（已验证双向可读写）。
+//  但 /Library/ProxyShare 是真实的共享路径（已验证 root 写、mobile 可读）。
 //
 //  所以改用一个最简单的协议：
 //    设置面板写入 command.plist  {"id":N, "cmd":"...", "values":{...}}
@@ -24,8 +24,8 @@ static PSExitHandler   gExitHandler   = nil;
 void PSControlSetReloadHandler(PSReloadHandler handler) { gReloadHandler = [handler copy]; }
 void PSControlSetExitHandler(PSExitHandler handler)     { gExitHandler   = [handler copy]; }
 
-#define PS_CMD_FILE   @"/var/tmp/ProxyShare/command.plist"
-#define PS_RESP_FILE  @"/var/tmp/ProxyShare/response.plist"
+#define PS_CMD_FILE   @"/Library/ProxyShare/command.plist"
+#define PS_RESP_FILE  @"/Library/ProxyShare/response.plist"
 
 static NSInteger gLastCmdID = -1;
 
@@ -123,7 +123,7 @@ static void PSPollOnce(void)
         out[@"ts"] = @([[NSDate date] timeIntervalSince1970]);
 
         [out writeToFile:PS_RESP_FILE atomically:YES];
-        chmod("/var/tmp/ProxyShare/response.plist", 0666);
+        chmod("/Library/ProxyShare/response.plist", 0666);
     }
 }
 
@@ -140,8 +140,8 @@ static void PSPollOnce(void)
     mkdir(PS_STATE_DIR_C, 0777);
 
     // 清掉上一次的残留
-    unlink("/var/tmp/ProxyShare/command.plist");
-    unlink("/var/tmp/ProxyShare/response.plist");
+    unlink("/Library/ProxyShare/command.plist");
+    unlink("/Library/ProxyShare/response.plist");
 
     // 先写一份初始响应，让面板启动就能拿到状态
     gLastCmdID = -1;
@@ -159,7 +159,7 @@ static void PSPollOnce(void)
     });
     dispatch_resume(_timer);
 
-    PSLog(@"[CTRL] 命令通道已就绪 %s", "/var/tmp/ProxyShare/command.plist");
+    PSLog(@"[CTRL] 命令通道已就绪 %s", "/Library/ProxyShare/command.plist");
     return YES;
 }
 

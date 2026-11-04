@@ -19,20 +19,20 @@
 #import <dispatch/dispatch.h>
 
 // 共享目录（root 可写，mobile 可读）
-// RootHide 下 root 守护进程默认受 iOS 沙盒限制，/Library 不可写；
-// 必须给 psd 签名 entitlements(psd.entitlements) 解除沙盒，
-// 之后 /var/tmp、/var/root、/private/var/mobile 均可写。这里选 /var/tmp（两用户都可访问）。
-#define PS_STATE_DIR        @"/var/tmp/ProxyShare"
-#define PS_CONFIG_FILE      @"/var/tmp/ProxyShare/config.plist"
-#define PS_STATE_FILE       @"/var/tmp/ProxyShare/state.plist"
-#define PS_LOG_FILE         @"/var/tmp/ProxyShare/proxy.log"
+// 关键：RootHide 下 root 进程的 /var/tmp 与 mobile 看到的是**两个不同的虚拟容器**，
+// 而 /Library 是真实的共享路径（已验证 root 写、mobile 可读，内容一致）。
+// 所以配置、状态、命令文件全部放这里。
+#define PS_STATE_DIR        @"/Library/ProxyShare"
+#define PS_CONFIG_FILE      @"/Library/ProxyShare/config.plist"
+#define PS_STATE_FILE       @"/Library/ProxyShare/state.plist"
+#define PS_LOG_FILE         @"/Library/ProxyShare/proxy.log"
 #define PS_PREFS_DOMAIN     @"com.axs.proxyshare"
 
 // 同上路径的 C 字符串形式（供 mkdir/fopen 使用）
-#define PS_STATE_DIR_C      "/var/tmp/ProxyShare"
-#define PS_LOG_FILE_C       "/var/tmp/ProxyShare/proxy.log"
-#define PS_CONFIG_FILE_C    "/var/tmp/ProxyShare/config.plist"
-#define PS_STATE_FILE_C     "/var/tmp/ProxyShare/state.plist"
+#define PS_STATE_DIR_C      "/Library/ProxyShare"
+#define PS_LOG_FILE_C       "/Library/ProxyShare/proxy.log"
+#define PS_CONFIG_FILE_C    "/Library/ProxyShare/config.plist"
+#define PS_STATE_FILE_C     "/Library/ProxyShare/state.plist"
 
 // 默认值（避开 1080/1086/8118 等代理软件常用端口）
 #define PS_DEFAULT_SOCKS_PORT   47680
@@ -78,7 +78,7 @@ BOOL PSACLValidRule(NSString *rule);
 
 // RootHide 下 root 与 mobile 的网络栈是隔离的（回环端口互相看不见），
 // 但文件系统是共享的，因此控制通道改用 Unix domain socket，放在两用户都可达的 /var/tmp。
-#define PS_CTRL_SOCKET_PATH "/var/tmp/ProxyShare/control.sock"
+#define PS_CTRL_SOCKET_PATH "/Library/ProxyShare/control.sock"
 
 // ---------------------------------------------------------------- 状态
 

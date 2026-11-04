@@ -16,7 +16,7 @@
 #include <unistd.h>
 #include <string.h>
 
-#define PS_CTRL_SOCKET "/var/tmp/ProxyShare/control.sock"
+#define PS_CTRL_SOCKET "/Library/ProxyShare/control.sock"
 #define PS_PREFS_ID   @"com.axs.proxyshare"
 
 // ---------------------------------------------------------------- 控制通道
@@ -27,11 +27,11 @@ static NSInteger gCmdSeq = 0;
 //   写 command.plist {"id":N,...} → 等 response.plist 里 id==N
 static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 {
-    NSString *cmdPath  = @"/var/tmp/ProxyShare/command.plist";
-    NSString *respPath = @"/var/tmp/ProxyShare/response.plist";
+    NSString *cmdPath  = @"/Library/ProxyShare/command.plist";
+    NSString *respPath = @"/Library/ProxyShare/response.plist";
 
     // 目录可能还没建（守护进程未运行过）
-    [[NSFileManager defaultManager] createDirectoryAtPath:@"/var/tmp/ProxyShare"
+    [[NSFileManager defaultManager] createDirectoryAtPath:@"/Library/ProxyShare"
                               withIntermediateDirectories:YES attributes:nil error:NULL];
 
     // 用时间戳做序号，避免与上一次冲突
@@ -62,7 +62,7 @@ static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
     }
 
     // 超时：退一步，看看能不能直接读 state.plist 兜底
-    NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:@"/var/tmp/ProxyShare/state.plist"];
+    NSDictionary *st = [NSDictionary dictionaryWithContentsOfFile:@"/Library/ProxyShare/state.plist"];
     if ([st isKindOfClass:[NSDictionary class]] && st[@"pid"]) {
         NSMutableDictionary *d = [st mutableCopy];
         d[@"ok"] = @YES;
