@@ -1,0 +1,52 @@
+#!/bin/bash
+# 安装后：修正 RootHide 路径、注册守护进程
+set -e
+
+JBROOT="$(readlink -f /var/jb 2>/dev/null || echo /)"
+# RootHide 下 /var/jb 就是 /，真实根在 .jbroot-XXXX
+if [ -d /var/containers/Bundle/Application ]; then
+  for d in /var/containers/Bundle/Application/.jbroot-*; do
+    [ -d "$d" ] && JBROOT="$d" && break
+  done
+fi
+echo "[ProxyShare] jbroot = $JBROOT"
+
+DAEMON="$JBROOT/Library/LaunchDaemons/com.axs.proxyshare.plist"
+
+# 若 plist 里的路径不是绝对真实路径，改写它（RootHide launchd 要求绝对路径）
+if [ -f "$DAEMON" ] && [ "$JBROOT" != "/" ]; then
+  if ! grep -q "$JBROOT" "$DAEMON" 2>/dev/null; then
+    sed -i '' "s#<string>/usr/libexec/psd</string>#<string>${JBROOT}/usr/libexec/psd</string>#" "$DAEMON" 2>/dev/null || \
+    sed -i "s#<string>/usr/libexec/psd</string>#<string>${JBROOT}/usr/libexec/psd</string>#" "$DAEMON"
+    echo "[ProxyShare] 已改写守护进程路径"
+  fi
+fi
+
+# 建共享目录
+mkdir -p /var/mobile/Library/ProxyShare
+chown mobile:mobile /var/mobile/Library/ProxyShare 2>/dev/null || true
+chmod 0755 /var/mobile/Library/ProxyShare
+
+# 默认配置：启用 + 端口
+if [ ! -f /var/mobile/Library/ProxyShare/state.plist ]; then
+  cat > /var/mobile/Library/ProxyShare/state.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>enabled</key><true/>
+	<key>socksPort</key><integer>1086</integer>
+	<key>httpPort</key><integer>8118</integer>
+</dict>
+</plist>
+PLIST
+  chown mobile:mobile /var/mobile/Library/ProxyShare/state.plist 2>/dev/null || true
+  chmod 0644 /var/mobile/Library/ProxyShare/state.plist
+fi
+
+# 启动守护进程（用 launcher 解析 RootHide 路径）
+launchctl bootout system "$DAEMON" 2>/dev/null || true
+launchctl bootstrap system "$DAEMON" 2>/dev/null || launchctl load -w "$DAEMON" 2>/dev/null || true
+
+echo "[ProxyShare] 安装完成"
+exit 0

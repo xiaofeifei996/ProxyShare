@@ -1,0 +1,58 @@
+//
+//  PSCommon.h
+//  ProxyShare — 把本机的代理隧道共享给同一局域网内的其它设备
+//
+//  设计要点：
+//  1. 这是一个**独立守护进程**（launchd 拉起），不是注入进某进程的 tweak。
+//     因为 iOS 的全局代理（Shadowrocket/Clash 等）建立的是 utun 隧道 + 默认路由，
+//     对设备上所有进程生效，包括 root 守护进程。因此本进程的 outbound connect()
+//     会自动走隧道，无需任何 hook、无需代理软件开端口。
+//  2. 本进程只负责：监听局域网端口 -> 解析 SOCKS5 / HTTP CONNECT -> connect 目标 -> 双向转发。
+//  3. 配置与日志放在沙盒外的共享目录，App/设置面板/SSH 都能读写。
+//
+
+#ifndef PS_COMMON_H
+#define PS_COMMON_H
+
+#import <Foundation/Foundation.h>
+
+// 共享目录（root 可写，mobile 可读）
+#define PS_STATE_DIR        @"/var/mobile/Library/ProxyShare"
+#define PS_STATE_FILE       @"/var/mobile/Library/ProxyShare/state.plist"
+#define PS_LOG_FILE         @"/var/mobile/Library/ProxyShare/proxy.log"
+#define PS_PREFS_DOMAIN     @"com.axs.proxyshare"
+
+// 默认值
+#define PS_DEFAULT_SOCKS_PORT   1086
+#define PS_DEFAULT_HTTP_PORT    8118
+#define PS_DEFAULT_BIND         @"0.0.0.0"
+
+// 日志上限（行）
+#define PS_LOG_MAX_LINES        600
+
+// 配置读取（每次读盘，避免 launchd 进程缓存旧值）
+BOOL        PSConfigBool(NSString *key, BOOL def);
+NSInteger   PSConfigInt(NSString *key, NSInteger def);
+NSString   *PSConfigString(NSString *key, NSString *def);
+
+// 运行状态（守护进程写，面板读）
+NSDictionary *PSReadState(void);
+void         PSWriteState(NSDictionary *state);
+
+// 日志（同时写文件与 stderr）
+void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
+
+// 统计
+@interface PSStats : NSObject
+@property (atomic, assign) uint64_t acceptedConnections;
+@property (atomic, assign) uint64_t activeConnections;
+@property (atomic, assign) uint64_t bytesUp;
+@property (atomic, assign) uint64_t bytesDown;
+@property (atomic, assign) uint64_t rejectedConnections;
+@property (atomic, copy)   NSString *lastError;
+@property (atomic, copy)   NSString *startedAt;
+@end
+
+extern PSStats *PSSharedStats(void);
+
+#endif /* PS_COMMON_H */

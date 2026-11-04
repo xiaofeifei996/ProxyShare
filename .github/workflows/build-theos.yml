@@ -1,0 +1,98 @@
+name: Build ProxyShare
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+  THEOS: ${{ github.workspace }}/theos-roothide
+
+jobs:
+  build:
+    name: Build (roothide)
+    runs-on: macos-14
+
+    steps:
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        run: |
+          echo "$THEOS/bin" >> "$GITHUB_PATH"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "THEOS_IGNORE_PARALLEL_BUILDING_NOTICE=yes" >> "$HOME/.theosrc"
+
+      - name: Checkout Theos (RootHide)
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/theos
+          path: theos-roothide
+          submodules: recursive
+
+      - name: Install iOS SDK (iPhoneOS16.5)
+        run: |
+          set -euo pipefail
+          mkdir -p "$THEOS/sdks"
+          if [ -d "$THEOS/sdks/iPhoneOS16.5.sdk" ]; then
+            echo "SDK already present"
+            exit 0
+          fi
+          SDK_STAGE="$(mktemp -d)"
+          trap 'rm -rf "$SDK_STAGE"' EXIT
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$SDK_STAGE/sdks"
+          git -C "$SDK_STAGE/sdks" sparse-checkout set iPhoneOS16.5.sdk
+          cp -R "$SDK_STAGE/sdks/iPhoneOS16.5.sdk" "$THEOS/sdks/"
+          ls -1 "$THEOS/sdks"
+
+      - name: Install Theos dependencies
+        run: |
+          brew install ldid dpkg xz
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Build Package
+        run: |
+          set -o pipefail
+          ./build.sh roothide
+          sh build.sh "roothide" 2>&1 | tee /tmp/build.log
+          echo "=== .deb files ==="
+          find ./packages -name "*.deb" -type f
+
+      - name: Collect artifacts
+        if: always()
+        run: |
+          set -eu
+          mkdir -p out
+          cp packages/*.deb out/ 2>/dev/null || true
+          cp /tmp/build.log out/build-roothide.log 2>/dev/null || true
+          ls -l out
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-roothide
+          path: out/*
+          if-no-files-found: warn
+
+      - name: Report failure
+        if: failure()
+        run: |
+          mkdir -p errors
+          cp /tmp/build.log "errors/build-run-${{ github.run_id }}-roothide.txt" 2>/dev/null || true
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git checkout -B build-logs
+          git add -f errors || true
+          git commit -m "build log for run ${{ github.run_id }} (roothide)" || true
+          git push -f origin build-logs || true

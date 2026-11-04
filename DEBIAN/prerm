@@ -1,0 +1,14 @@
+#!/bin/bash
+# 卸载前：停掉守护进程
+set -e
+
+DAEMON="/Library/LaunchDaemons/com.axs.proxyshare.plist"
+launchctl bootout system "$DAEMON" 2>/dev/null || true
+launchctl unload -w "$DAEMON" 2>/dev/null || true
+
+# 只删日志，保留用户的配置
+rm -f /var/mobile/Library/ProxyShare/proxy.log 2>/dev/null || true
+rm -f /var/mobile/Library/ProxyShare/launchd.*.log 2>/dev/null || true
+
+echo "[ProxyShare] 已停止"
+exit 0
