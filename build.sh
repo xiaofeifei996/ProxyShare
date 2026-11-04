@@ -42,10 +42,13 @@ chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 安装设置面板 bundle
 if [ -n "$PREFS_BUNDLE" ] && [ -d "$PREFS_BUNDLE" ]; then
+    DEST="$STAGE/Library/PreferenceBundles/ProxySharePrefs"
+    rm -rf "$DEST"
     mkdir -p "$STAGE/Library/PreferenceBundles"
-    cp -R "$PREFS_BUNDLE" "$STAGE/Library/PreferenceBundles/"
-    chmod -R 0755 "$STAGE/Library/PreferenceBundles/ProxySharePrefs"
-    echo "已打包设置面板"
+    cp -R "$PREFS_BUNDLE" "$DEST"
+    chmod -R 0755 "$DEST"
+    echo "已打包设置面板:"
+    ls -1 "$DEST"
 else
     echo "警告: 未找到设置面板 bundle，将只打包守护进程"
 fi

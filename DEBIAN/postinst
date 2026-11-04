@@ -1,17 +1,12 @@
 #!/bin/bash
-# 安装后：准备目录、注册守护进程
+# 安装后：准备目录、注册守护进程、刷新设置面板
 set -e
 
 SHARE=/var/tmp/ProxyShare
+DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
 
 mkdir -p "$SHARE"
 chmod 0777 "$SHARE"
-
-# 给用户一个方便找的位置（软链接）
-if [ ! -e /var/mobile/Library/ProxyShare ]; then
-  mkdir -p /var/mobile/Library 2>/dev/null || true
-  ln -s "$SHARE" /var/mobile/Library/ProxyShare 2>/dev/null || true
-fi
 
 # 默认配置（不覆盖已有）
 if [ ! -f "$SHARE/config.plist" ]; then
@@ -23,20 +18,28 @@ if [ ! -f "$SHARE/config.plist" ]; then
 	<key>enabled</key><true/>
 	<key>socksPort</key><integer>47680</integer>
 	<key>httpPort</key><integer>47681</integer>
+	<key>ctrlPort</key><integer>47682</integer>
 	<key>bindAddress</key><string>0.0.0.0</string>
+	<key>aclEnabled</key><false/>
+	<key>aclList</key><string></string>
 </dict>
 </plist>
 PLIST
   chmod 0666 "$SHARE/config.plist"
 fi
 
-# 注册并启动
-DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
+# 注册并重启守护进程
 if [ -f "$DAEMON" ]; then
   launchctl bootout system "$DAEMON" 2>/dev/null || true
   sleep 1
   launchctl bootstrap system "$DAEMON" 2>/dev/null || launchctl load -w "$DAEMON" 2>/dev/null || true
 fi
 
-echo "[ProxyShare] 安装完成，数据目录 $SHARE"
+# 让设置面板立刻出现（重启 Settings 会自动重新扫描 PreferenceLoader）
+killall -9 Preferences 2>/dev/null || true
+
+echo "[ProxyShare] 安装完成"
+echo "  数据目录: $SHARE"
+echo "  端口: SOCKS5 47680 / HTTP 47681 / 控制 47682(仅本机)"
+echo "  设置: 设置 → ProxyShare"
 exit 0
