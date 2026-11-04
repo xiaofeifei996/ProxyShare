@@ -85,28 +85,27 @@ curl -x http://192.168.1.2:47681 https://ipinfo.io/ip
 用 **`psctl`**（需要 root）：
 
 ```sh
-sudo psctl status              # 查看当前端口与状态
-sudo psctl set socks 47690     # 改 SOCKS5 端口
-sudo psctl set http  47691     # 改 HTTP 端口
-sudo psctl set bind  0.0.0.0   # 改绑定地址（127.0.0.1 = 仅本机）
-sudo psctl restart             # 重启生效
-sudo psctl off                 # 临时关闭
-sudo psctl on                  # 重新启用
+sudo psctl status                          # 查看配置与进程状态
+sudo psctl set socks 47690 && sudo psctl restart
+sudo psctl set http  47691 && sudo psctl restart
+sudo psctl set bind  127.0.0.1 && sudo psctl restart   # 只给本机用
+sudo psctl off                             # 临时关闭
+sudo psctl on                              # 重新启用
 ```
-
-`psctl` 直接改写 LaunchDaemon 的启动参数再交给 `launchctl`，**不依赖任何共享文件**。
 
 ### IP 白名单
 
-在 LaunchDaemon plist 的 `ProgramArguments` 里加：
-
-```xml
-<string>--acl</string>
-<string>192.168.1.0/24,10.0.0.5</string>
+```sh
+sudo psctl acl 192.168.1.0/24,10.0.0.5 && sudo psctl restart
+sudo psctl acl off && sudo psctl restart
 ```
 
-支持三种写法：`192.168.1.5`（单 IP）、`192.168.1.0/24`（CIDR）、`192.168.1.*`（通配）。
-回环地址永远放行，方便本机自测。改完 `sudo psctl restart`。
+支持 `192.168.1.5`（单 IP）、`192.168.1.0/24`（CIDR）、`192.168.1.*`（通配）。
+回环地址永远放行，方便本机自测。
+
+> `psctl` 是 **shell 脚本**，不是编译的二进制——因为编译出来的进程在 RootHide 下
+> `/Library` 会被 dyldhook 重定向，且写操作被沙盒拦截；而 bash 已被 patch 过，
+> 看到的是真实路径，能正常改写 LaunchDaemon 的 plist。
 
 ## 排查
 
@@ -131,6 +130,11 @@ RootHide 越狱下，**root 守护进程与 Settings（mobile 用户）之间是
 | **启动参数** | ✅ **唯一可靠的通道** |
 
 所以面板只做展示与复制，真正改配置走 `psctl`（改启动参数 + 重启服务）。
+
+顺带一个陷阱：**编译出来的 psctl 也不行**。它读 plist 时能看到 jammed 进
+`.jbroot-XXXX/Library` 的路径（能读），但写会被拒；改用管道喂给 bash 也不行。
+只有 **shell 脚本**（`#!/var/jb/usr/bin/bash`）能正常改写，因为 bash 被 RootHide
+打了 patch。
 
 ## 技术要点（踩坑记录）
 
