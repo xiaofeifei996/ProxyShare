@@ -10,6 +10,7 @@
 
 #include <signal.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 static PSProxyServer *gServer;
 
