@@ -74,6 +74,12 @@ BOOL PSACLAllowsPeer(const char *ipStr);
 // 校验单条规则（供面板/控制端口验证）
 BOOL PSACLValidRule(NSString *rule);
 
+// ---------------------------------------------------------------- Socket 路径
+
+// RootHide 下 root 与 mobile 的网络栈是隔离的（回环端口互相看不见），
+// 但文件系统是共享的，因此控制通道改用 Unix domain socket，放在两用户都可达的 /var/tmp。
+#define PS_CTRL_SOCKET_PATH "/var/tmp/ProxyShare/control.sock"
+
 // ---------------------------------------------------------------- 状态
 
 NSDictionary *PSReadState(void);

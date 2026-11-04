@@ -10,31 +10,31 @@
 #import <Preferences/PSSpecifier.h>
 #import <UIKit/UIKit.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <unistd.h>
 #include <string.h>
 
-#define PS_CTRL_PORT  47682
+#define PS_CTRL_SOCKET "/var/tmp/ProxyShare/control.sock"
 #define PS_PREFS_ID   @"com.axs.proxyshare"
 
 // ---------------------------------------------------------------- 控制通道
 
 static NSDictionary *PSCallControl(NSDictionary *req, NSTimeInterval timeout)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return @{ @"ok": @NO, @"error": @"socket 失败" };
 
     struct timeval tv = { (time_t)timeout, 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    struct sockaddr_in a;
+    struct sockaddr_un a;
     memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    a.sin_port   = htons(PS_CTRL_PORT);
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sun_family = AF_UNIX;
+    strncpy(a.sun_path, PS_CTRL_SOCKET, sizeof(a.sun_path) - 1);
 
     if (connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
         close(fd);

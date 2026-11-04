@@ -2,7 +2,9 @@
 #import "PSControlServer.h"
 
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/select.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -138,29 +140,35 @@ static NSDictionary *PSHandleCommand(NSDictionary *req)
 - (BOOL)startOnPort:(uint16_t)port error:(NSString **)err
 {
     if (_running) return YES;
+    (void)port;
 
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { if (err) *err = @"socket() 失败"; return NO; }
+    mkdir(PS_STATE_DIR_C, 0777);
+
+    // 清理上一次的残留 socket
+    unlink(PS_CTRL_SOCKET_PATH);
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) { if (err) *err = @"socket(AF_UNIX) 失败"; return NO; }
 
     int one = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 
-    struct sockaddr_in addr;
+    struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
-    addr.sin_family      = AF_INET;
-    addr.sin_port        = htons(port);
-    // 关键：只绑回环，局域网碰不到
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, PS_CTRL_SOCKET_PATH, sizeof(addr.sun_path) - 1);
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        if (err) *err = [NSString stringWithFormat:@"控制端口 :%u 绑定失败 (%s)",
-                         port, strerror(errno)];
+        if (err) *err = [NSString stringWithFormat:@"控制 socket 绑定失败 (%s)",
+                         strerror(errno)];
         close(fd);
         return NO;
     }
+    // 关键：让 mobile 用户（设置面板）也能连
+    chmod(PS_CTRL_SOCKET_PATH, 0666);
+
     if (listen(fd, 32) < 0) {
-        if (err) *err = @"控制端口 listen 失败";
+        if (err) *err = @"控制 socket listen 失败";
         close(fd);
         return NO;
     }
@@ -171,22 +179,11 @@ static NSDictionary *PSHandleCommand(NSDictionary *req)
     int lfd = fd;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         while (self->_running && lfd >= 0) {
-            struct sockaddr_in peer;
-            socklen_t plen = sizeof(peer);
-            int c = accept(lfd, (struct sockaddr *)&peer, &plen);
+            int c = accept(lfd, NULL, NULL);
             if (c < 0) {
                 if (errno == EINTR) continue;
                 if (!self->_running) break;
                 usleep(50 * 1000);
-                continue;
-            }
-
-            // 双重保险：只接受来自 127.0.0.1 的连接
-            char ip[64] = {0};
-            inet_ntop(AF_INET, &peer.sin_addr, ip, sizeof(ip));
-            if (strcmp(ip, "127.0.0.1") != 0) {
-                PSLog(@"[CTRL] 拒绝非本地连接 %s", ip);
-                close(c);
                 continue;
             }
 
@@ -230,7 +227,7 @@ static NSDictionary *PSHandleCommand(NSDictionary *req)
         }
     });
 
-    PSLog(@"[CTRL] 控制端口已监听 127.0.0.1:%u", port);
+    PSLog(@"[CTRL] 控制通道已就绪 %s (mode 0666)", PS_CTRL_SOCKET_PATH);
     return YES;
 }
 
