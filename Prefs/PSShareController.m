@@ -1,8 +1,8 @@
 //
-//  PSShareController.m — 设置面板（只读展示）
+//  PSShareController.m — 设置面板
 //
-//  面板只能展示配置，不能修改：RootHide 下 root 守护进程与 Settings
-//  的文件系统、网络栈都隔离（详见 README）。改配置用 sudo psctl。
+//  开关/端口等配置写入 NSUserDefaults（com.axs.proxyshare），
+//  psd 每 2 秒从 AppGroup 真实路径读取，实现实时生效。
 //
 
 #import <Preferences/PSListController.h>
@@ -13,10 +13,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include <dlfcn.h>
 
-static NSString *const kPlistPath     = @"/Library/LaunchDaemons/com.axs.proxyshare.plist";
-static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.proxyshare.plist";
+static NSString *const kPrefsDomain = @"com.axs.proxyshare";
+static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshare.plist";
 
 @interface PSShareController : PSListController
 @property (nonatomic, strong) NSMutableDictionary *cfg;
@@ -36,111 +35,51 @@ static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.
     [self reloadConfig];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    // 定时刷新运行状态
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+    [self performSelector:@selector(pollTick) withObject:nil afterDelay:3.0];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+}
+
+- (void)pollTick {
+    if (!self.isViewLoaded || !self.view.window) return;
+    self.cfg[@"proc"] = [self portListening] ? @"运行中" : @"已停止";
+    [self reloadSpecifiers];
+    [self performSelector:@selector(pollTick) withObject:nil afterDelay:3.0];
+}
+
 - (void)reloadConfig {
     NSMutableDictionary *m = [NSMutableDictionary dictionary];
     m[@"ip"] = [self primaryIPv4] ?: @"（未连接 Wi-Fi）";
 
-    // 逐个候选路径尝试
-    NSMutableArray *tried = [NSMutableArray array];
-    NSArray *paths = [self candidatePlistPaths];
+    // 端口：优先看 LaunchDaemon 参数，其次 UserDefaults
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:kPlistPath];
+    NSArray *args = d[@"ProgramArguments"];
 
-    for (NSString *p in paths) {
-        NSError *err = nil;
-        NSData *data = [NSData dataWithContentsOfFile:p
-                                              options:0
-                                                error:&err];
-        [tried addObject:[NSString stringWithFormat:@"%@:%@", p,
-                          data ? [NSString stringWithFormat:@"%luB", (unsigned long)data.length]
-                               : (err.localizedDescription ?: @"nil")]];
-        if (!data.length) continue;
+    NSString *socks = [self valueAfterFlag:@"--socks" in:args];
+    NSString *http  = [self valueAfterFlag:@"--http"  in:args];
 
-        id obj = [NSPropertyListSerialization propertyListWithData:data
-                                                           options:0
-                                                            format:NULL
-                                                             error:&err];
-        if (![obj isKindOfClass:[NSDictionary class]]) {
-            [tried addObject:@"  解析失败"];
-            continue;
-        }
-        NSArray *args = obj[@"ProgramArguments"];
-        if (![args isKindOfClass:[NSArray class]]) continue;
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+    if (!socks) socks = [ud objectForKey:@"socksPort"] ? [[ud objectForKey:@"socksPort"] stringValue] : @"47680";
+    if (!http)  http  = [ud objectForKey:@"httpPort"]  ? [[ud objectForKey:@"httpPort"]  stringValue] : @"47681";
 
-        m[@"socks"] = [self valueAfterFlag:@"--socks" in:args] ?: @"47680";
-        m[@"http"]  = [self valueAfterFlag:@"--http"  in:args] ?: @"47681";
-        m[@"bind"]  = [self valueAfterFlag:@"--bind"  in:args] ?: @"0.0.0.0";
-        m[@"acl"]   = [self valueAfterFlag:@"--acl"   in:args] ?: @"未启用";
-        m[@"enabled"] = [args containsObject:@"--off"] ? @"已禁用" : @"已启用";
-        m[@"source"]  = p;
-        break;
-    }
+    m[@"socks"] = socks;
+    m[@"http"]  = http;
 
-    if (!m[@"socks"]) {
-        m[@"error"] = [tried componentsJoinedByString:@"\n"];
-    }
-
-    // 先落 cfg，再探测端口（探测需要知道端口号）
     self.cfg = m;
-    m[@"proc"] = [self daemonRunning] ? @"运行中" : @"未运行";
+    m[@"proc"] = [self portListening] ? @"运行中" : @"已停止";
 
     [self reloadSpecifiers];
 }
 
-- (NSArray *)candidatePlistPaths {
-    NSMutableArray *arr = [NSMutableArray array];
-    [arr addObject:kPlistPath];
-
-    // RootHide: 从 .jbroot-XXXX 目录里找
-    NSString *apps = @"/var/containers/Bundle/Application";
-    NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:apps error:NULL];
-    for (NSString *d in dirs) {
-        if (![d hasPrefix:@".jbroot-"]) continue;
-        [arr addObject:[NSString stringWithFormat:
-            @"%@/%@/Library/LaunchDaemons/com.axs.proxyshare.plist", apps, d]];
-    }
-    [arr addObject:kPlistPathAlt];
-    return arr;
-}
-
-- (BOOL)daemonRunning {
-    // 直接用 connect() 探测端口——这是最可靠的方式：
-    // 不受 popen/沙盒影响，而且能真正验证服务是否在工作。
-    NSString *portStr = self.cfg[@"socks"] ?: @"47680";
-    int port = [portStr intValue];
-    if (port <= 0) port = 47680;
-
-    // 先试回环（同机器一定可达）
-    if ([self canConnectTo:@"127.0.0.1" port:port]) return YES;
-
-    // 再试本机局域网 IP
-    NSString *ip = self.cfg[@"ip"];
-    if (ip.length && [self canConnectTo:ip port:port]) return YES;
-
-    return NO;
-}
-
-- (BOOL)canConnectTo:(NSString *)host port:(int)port {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return NO;
-
-    struct timeval tv = { 1, 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    a.sin_port = htons((uint16_t)port);
-    if (inet_pton(AF_INET, host.UTF8String, &a.sin_addr) != 1) {
-        close(fd);
-        return NO;
-    }
-
-    BOOL ok = (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0);
-    close(fd);
-    return ok;
-}
-
 - (NSString *)valueAfterFlag:(NSString *)flag in:(NSArray *)args {
+    if (![args isKindOfClass:[NSArray class]]) return nil;
     NSUInteger i = [args indexOfObject:flag];
     if (i == NSNotFound || i + 1 >= args.count) return nil;
     return args[i + 1];
@@ -162,29 +101,37 @@ static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.
     return found;
 }
 
+// 探测端口判断服务是否在跑
+- (BOOL)portListening {
+    int port = [self.cfg[@"socks"] intValue];
+    if (port <= 0) port = 47680;
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NO;
+    struct timeval tv = { 1, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    BOOL ok = (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0);
+    close(fd);
+    return ok;
+}
+
 // ---------------------------------------------------------------- 展示
 
-- (id)enabledValue:(PSSpecifier *)sp  { return self.cfg[@"enabled"] ?: @"—"; }
-- (id)ipValue:(PSSpecifier *)sp       { return self.cfg[@"ip"] ?: @"—"; }
-- (id)socksValue:(PSSpecifier *)sp    { return self.cfg[@"socks"] ?: @"—"; }
-- (id)httpValue:(PSSpecifier *)sp     { return self.cfg[@"http"] ?: @"—"; }
-- (id)bindValue:(PSSpecifier *)sp     { return self.cfg[@"bind"] ?: @"—"; }
 - (id)statusValue:(PSSpecifier *)sp   { return self.cfg[@"proc"] ?: @"—"; }
-
-- (NSString *)statusFooter {
-    if (self.cfg[@"error"]) {
-        return [NSString stringWithFormat:@"读取配置失败：\n%@", self.cfg[@"error"]];
-    }
-    return [NSString stringWithFormat:@"配置来源：%@", self.cfg[@"source"] ?: @"—"];
-}
+- (id)ipValue:(PSSpecifier *)sp       { return self.cfg[@"ip"] ?: @"—"; }
 
 - (id)socksAddr:(PSSpecifier *)sp {
-    return [NSString stringWithFormat:@"%@:%@",
-            self.cfg[@"ip"] ?: @"?", self.cfg[@"socks"] ?: @"?"];
+    return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"socks"] ?: @"?"];
 }
 - (id)httpAddr:(PSSpecifier *)sp {
-    return [NSString stringWithFormat:@"%@:%@",
-            self.cfg[@"ip"] ?: @"?", self.cfg[@"http"] ?: @"?"];
+    return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"http"] ?: @"?"];
 }
 
 - (void)copySocks:(PSSpecifier *)sp { [self copy:[self socksAddr:sp]]; }
@@ -202,6 +149,40 @@ static NSString *const kPlistPathAlt  = @"/var/jb/Library/LaunchDaemons/com.axs.
             [al dismissViewControllerAnimated:YES completion:nil];
         });
     }];
+}
+
+// ---------------------------------------------------------------- 开关与端口
+
+- (id)readPreferenceValue:(PSSpecifier *)specifier {
+    NSString *key = specifier.properties[@"key"];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+    id v = [ud objectForKey:key];
+    if (v) return v;
+    return specifier.properties[@"default"];
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    NSString *key = specifier.properties[@"key"];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+    [ud setObject:value forKey:key];
+    [ud synchronize];
+
+    [super setPreferenceValue:value specifier:specifier];
+
+    // 改了端口就更新显示
+    if ([key isEqualToString:@"socksPort"] || [key isEqualToString:@"httpPort"]) {
+        NSString *s = [[ud objectForKey:@"socksPort"] description] ?: @"47680";
+        NSString *h = [[ud objectForKey:@"httpPort"]  description] ?: @"47681";
+        self.cfg[@"socks"] = s;
+        self.cfg[@"http"]  = h;
+    }
+
+    // 稍等让守护进程读到新配置
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        self.cfg[@"proc"] = [self portListening] ? @"运行中" : @"已停止";
+        [self reloadSpecifiers];
+    });
 }
 
 @end

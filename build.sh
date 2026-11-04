@@ -4,7 +4,7 @@ set -e
 
 VARIANT="${1:-roothide}"
 NAME="ProxyShare"
-VERSION="1.2.3"
+VERSION="1.3.0"
 
 if [ -z "$THEOS" ]; then
     echo "错误: 未设置 THEOS 环境变量" >&2

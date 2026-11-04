@@ -201,24 +201,56 @@ int main(int argc, char *argv[])
         });
         dispatch_resume(timer);
 
-        // 监视配置版本（控制端口 set 会递增）
-        static int lastVer = -1;
+        // 监视配置：每 2 秒重读一次，支持面板改开关后实时生效
+        __block BOOL lastEnabled = YES;
         dispatch_source_t cfgTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                            dispatch_get_main_queue());
         dispatch_source_set_timer(cfgTimer,
-                                  dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC),
-                                  3 * NSEC_PER_SEC, NSEC_PER_SEC);
+                                  dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+                                  2 * NSEC_PER_SEC, NSEC_PER_SEC);
         dispatch_source_set_event_handler(cfgTimer, ^{
-            int v = PSConfigVersion();
-            if (lastVer < 0) { lastVer = v; return; }
-            if (v == lastVer) return;
-            lastVer = v;
+            BOOL nowEnabled = PSConfigBool(@"enabled", YES);
+            NSInteger sp = PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
+            NSInteger hp = PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT);
 
-            if (!PSConfigBool(@"enabled", YES)) {
-                PSExitNow();
+            // 开关变化：启停监听
+            if (nowEnabled != lastEnabled) {
+                lastEnabled = nowEnabled;
+                if (nowEnabled) {
+                    PSLog(@"[配置] 已启用，开始监听");
+                    NSString *e = nil;
+                    if (![gServer startWithSOCKS:(uint16_t)sp http:(uint16_t)hp error:&e]) {
+                        PSLog(@"[配置] 启动失败：%@", e);
+                        PSWriteRuntimeState(NO, e);
+                    } else {
+                        PSWriteRuntimeState(YES, nil);
+                    }
+                } else {
+                    PSLog(@"[配置] 已停用，停止监听");
+                    [gServer stop];
+                    PSWriteRuntimeState(NO, @"已通过设置界面停用");
+                }
+                return;
             }
-            // 端口变化由控制端口直接触发 PSRestartListeners，这里只刷新状态
-            PSWriteRuntimeState(YES, nil);
+
+            // 端口变化（仅启用状态下）
+            if (nowEnabled) {
+                static NSInteger lastSP = -1, lastHP = -1;
+                if (lastSP < 0) { lastSP = sp; lastHP = hp; }
+                if (sp != lastSP || hp != lastHP) {
+                    lastSP = sp; lastHP = hp;
+                    PSLog(@"[配置] 端口变更 SOCKS=:%ld HTTP=:%ld", (long)sp, (long)hp);
+                    [gServer stop];
+                    NSString *e = nil;
+                    if (![gServer startWithSOCKS:(uint16_t)sp http:(uint16_t)hp error:&e]) {
+                        PSWriteRuntimeState(NO, e);
+                    } else {
+                        PSWriteRuntimeState(YES, nil);
+                    }
+                }
+            }
+
+            PSWriteRuntimeState(nowEnabled, nil);
         });
         dispatch_resume(cfgTimer);
 

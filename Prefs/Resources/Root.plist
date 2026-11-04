@@ -5,11 +5,11 @@
 	<key>items</key>
 	<array>
 
-		<!-- ================= 当前配置 ================= -->
+		<!-- ================= 状态 ================= -->
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
-			<key>label</key><string>当前配置</string>
-			<key>footerText</key><string>配置保存在 LaunchDaemon 的启动参数里。此处只做展示，修改请用下方的命令。</string>
+			<key>label</key><string>运行状态</string>
+			<key>footerText</key><string>代理共享依赖本机已开启的代理软件（闪连 / Shadowrocket 等）。</string>
 		</dict>
 		<dict>
 			<key>cell</key><string>PSTitleValueCell</string>
@@ -18,31 +18,48 @@
 		</dict>
 		<dict>
 			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>开关</string>
-			<key>get</key><string>enabledValue:</string>
-		</dict>
-		<dict>
-			<key>cell</key><string>PSTitleValueCell</string>
 			<key>label</key><string>本机地址</string>
 			<key>get</key><string>ipValue:</string>
 		</dict>
+
+		<!-- ================= 开关 ================= -->
 		<dict>
-			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>SOCKS5 端口</string>
-			<key>get</key><string>socksValue:</string>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>开关</string>
+			<key>footerText</key><string>关闭后守护进程会停止监听端口，已建立的连接不受影响。修改后约 2 秒生效。</string>
 		</dict>
 		<dict>
-			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>HTTP 端口</string>
-			<key>get</key><string>httpValue:</string>
-		</dict>
-		<dict>
-			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>绑定地址</string>
-			<key>get</key><string>bindValue:</string>
+			<key>cell</key><string>PSSwitchCell</string>
+			<key>label</key><string>启用代理共享</string>
+			<key>key</key><string>enabled</string>
+			<key>default</key><true/>
+			<key>defaults</key><string>com.axs.proxyshare</string>
 		</dict>
 
-		<!-- ================= 复制 ================= -->
+		<!-- ================= 端口 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>端口</string>
+			<key>footerText</key><string>SOCKS5 给 Android / Clash 用；HTTP 给 iOS「Wi-Fi → 代理」用。避开 1080/1086/8118 等代理软件常用端口。修改后约 2 秒生效。</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>SOCKS5 端口</string>
+			<key>key</key><string>socksPort</string>
+			<key>default</key><string>47680</string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+			<key>keyboard</key><string>NumberPad</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSEditTextCell</string>
+			<key>label</key><string>HTTP 端口</string>
+			<key>key</key><string>httpPort</string>
+			<key>default</key><string>47681</string>
+			<key>defaults</key><string>com.axs.proxyshare</string>
+			<key>keyboard</key><string>NumberPad</string>
+		</dict>
+
+		<!-- ================= 复制地址 ================= -->
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>复制给别人用</string>
@@ -61,18 +78,18 @@
 			<key>action</key><string>copyHTTP:</string>
 		</dict>
 
-		<!-- ================= 修改配置 ================= -->
-		<dict>
-			<key>cell</key><string>PSGroupCell</string>
-			<key>label</key><string>修改配置</string>
-			<key>footerText</key><string>打开终端（NewTerm / SSH）执行，需要 root。&#10;&#10;改 SOCKS5 端口：&#10;sudo psctl set socks 47690&#10;sudo psctl restart&#10;&#10;改 HTTP 端口：&#10;sudo psctl set http 47691&#10;sudo psctl restart&#10;&#10;临时关闭：&#10;sudo psctl off&#10;&#10;查看状态：&#10;sudo psctl status</string>
-		</dict>
-
 		<!-- ================= 用法 ================= -->
 		<dict>
 			<key>cell</key><string>PSGroupCell</string>
 			<key>label</key><string>怎么用</string>
-			<key>footerText</key><string>iOS 设备：Wi-Fi → 当前网络 → 配置代理 → 手动 → 填上面的「HTTP 地址」。&#10;&#10;Android / Clash：加 SOCKS5 节点，填「SOCKS5 地址」。&#10;&#10;前提：&#10;· 本机的代理软件（闪连等）要保持运行&#10;· 两台设备在同一个 Wi-Fi 下</string>
+			<key>footerText</key><string>iOS：Wi-Fi → 当前网络 → 配置代理 → 手动 → 填上面的「HTTP 地址」。&#10;&#10;Android / Clash：加 SOCKS5 节点，填「SOCKS5 地址」。&#10;&#10;前提：&#10;· 本机的代理软件要保持连接&#10;· 两台设备在同一个 Wi-Fi 下</string>
+		</dict>
+
+		<!-- ================= 高级 ================= -->
+		<dict>
+			<key>cell</key><string>PSGroupCell</string>
+			<key>label</key><string>高级</string>
+			<key>footerText</key><string>IP 白名单等高级配置需在终端执行（需要 root）：&#10;&#10;sudo psctl acl 192.168.1.0/24&#10;sudo psctl acl off&#10;sudo psctl status&#10;sudo psctl restart</string>
 		</dict>
 
 	</array>

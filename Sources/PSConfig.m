@@ -23,21 +23,50 @@ static void PSConfigEnsureMem(void)
     if (!gMemConfig) gMemConfig = [NSMutableDictionary dictionary];
 }
 
+// RootHide 下 Settings（mobile）写的偏好，真实位置在 AppGroup 里：
+//   /rootfs/private/var/mobile/Containers/Shared/AppGroup/.jbroot-XXXX/var/mobile/Library/Preferences/
+// 文件名里带 .jbroot-XXXX，每台设备不同，所以启动时扫一次缓存。
+static NSArray *PSPrefsCandidates(void)
+{
+    static NSArray *cached = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *arr = [NSMutableArray array];
+
+        // 常规路径（非 RootHide 环境）
+        [arr addObject:@"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
+
+        // RootHide：扫 AppGroup 下的 .jbroot-* 目录
+        NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
+        NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base
+                                                                            error:NULL];
+        for (NSString *d in dirs) {
+            if (![d hasPrefix:@".jbroot-"]) continue;
+            [arr addObject:[NSString stringWithFormat:
+                @"%@/%@/var/mobile/Library/Preferences/com.axs.proxyshare.plist", base, d]];
+        }
+
+        cached = arr;
+    });
+    return cached;
+}
+
 static id PSConfigFromFile(NSString *key)
 {
     // 1) 专用配置文件（启动参数未覆盖时用）
     NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
     if (cfg && cfg[key]) return cfg[key];
 
-    // 2) cfprefsd
+    // 2) 设置面板写入的偏好（含 RootHide 的 AppGroup 真实路径）
+    for (NSString *p in PSPrefsCandidates()) {
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
+        if ([d isKindOfClass:[NSDictionary class]] && d[key]) return d[key];
+    }
+
+    // 3) cfprefsd
     CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
                                                     (__bridge CFStringRef)PS_PREFS_DOMAIN);
     if (v) return CFBridgingRelease(v);
-
-    // 3) 直读偏好 plist
-    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:
-                           @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
-    if (prefs && prefs[key]) return prefs[key];
 
     return nil;
 }
