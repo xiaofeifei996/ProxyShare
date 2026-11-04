@@ -61,7 +61,7 @@ static NSString *ResolvePlistPath(void)
         [cands addObject:[NSString stringWithFormat:@"%@/%@/%@", apps, d, PLIST_REL]];
     }
 
-    // 普通 rootless 环境
+    // 真实路径（bash/shell 视角，通常可读写）
     [cands addObject:[@"/" stringByAppendingPathComponent:PLIST_REL]];
 
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -87,11 +87,31 @@ static NSMutableDictionary *LoadPlist(void)
     return m;
 }
 
+// 直接写 jbroot 内的 plist 常被系统保护（Operation not permitted）。
+// /bin/bash 被 RootHide patch 过，看到的是真实 /Library，因此
+// 先写临时文件，再交给 bash 复制过去。
 static BOOL SavePlist(NSDictionary *d)
 {
-    NSString *path = PlistPath();
-    BOOL ok = [d writeToFile:path atomically:YES];
-    if (ok) chmod(path.fileSystemRepresentation, 0644);
+    NSString *tmp = @"/var/tmp/.proxyshare_daemon.plist";
+    if (![d writeToFile:tmp atomically:YES]) return NO;
+    chmod(tmp.fileSystemRepresentation, 0644);
+
+    NSString *target = @"/Library/LaunchDaemons/com.axs.proxyshare.plist";
+    NSString *cmd = [NSString stringWithFormat:@"/bin/cp -f '%@' '%@'", tmp, target];
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        execl("/bin/bash", "bash", "-c", cmd.UTF8String, (char *)NULL);
+        _exit(127);
+    }
+    if (pid < 0) return NO;
+    int st = 0;
+    waitpid(pid, &st, 0);
+    BOOL ok = WIFEXITED(st) && WEXITSTATUS(st) == 0;
+    unlink(tmp.fileSystemRepresentation);
+
+    // 让后续读取走真实路径
+    gPlistPath = target;
     return ok;
 }
 
