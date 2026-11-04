@@ -2,24 +2,26 @@
 #import <sys/stat.h>
 #import <pthread.h>
 
-static pthread_mutex_t gLogMutex = PTHREAD_MUTEX_INITIALIZER;
-
 // ---------------------------------------------------------------- 配置
 
 // 依次尝试：共享状态文件（沙盒外）→ cfprefsd → 默认值。
 // 每次调用都重新读盘，避免长驻守护进程拿到过期快照。
 static id PSConfigValue(NSString *key)
 {
-    // 1) 共享状态文件优先（守护进程与设置面板都写这一份）
+    // 1) 专用配置文件优先（面板/用户写的，程序从不覆盖它）
+    NSDictionary *cfg = [NSDictionary dictionaryWithContentsOfFile:PS_CONFIG_FILE];
+    if (cfg && cfg[key]) return cfg[key];
+
+    // 2) 兼容：老版本曾把配置写在 state.plist 里
     NSDictionary *shared = [NSDictionary dictionaryWithContentsOfFile:PS_STATE_FILE];
     if (shared && shared[key]) return shared[key];
 
-    // 2) cfprefsd
+    // 3) cfprefsd
     CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
                                                     (__bridge CFStringRef)PS_PREFS_DOMAIN);
     if (v) return CFBridgingRelease(v);
 
-    // 3) 直读偏好 plist（cfprefsd 可能没有镜像）
+    // 4) 直读偏好 plist（cfprefsd 可能没有镜像）
     NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:
                            @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist"];
     if (prefs && prefs[key]) return prefs[key];
@@ -64,17 +66,14 @@ NSDictionary *PSReadState(void)
 
 void PSWriteState(NSDictionary *state)
 {
-    [[NSFileManager defaultManager] createDirectoryAtPath:PS_STATE_DIR
-                              withIntermediateDirectories:YES
-                                               attributes:@{NSFilePosixPermissions: @(0755)}
-                                                    error:NULL];
+    mkdir("/var/mobile/Library/ProxyShare", 0755);
     [state writeToFile:PS_STATE_FILE atomically:YES];
-    // 让 mobile 用户（设置面板 / SSH）也能读到
     chmod(PS_STATE_FILE.fileSystemRepresentation, 0644);
 }
 
 // ---------------------------------------------------------------- 日志
 
+// 写文件日志：用 append 模式，避免每次读入整个文件
 void PSLog(NSString *fmt, ...)
 {
     va_list ap;
@@ -84,40 +83,27 @@ void PSLog(NSString *fmt, ...)
 
     NSDateFormatter *df = [[NSDateFormatter alloc] init];
     df.dateFormat = @"MM-dd HH:mm:ss";
-    NSString *line = [NSString stringWithFormat:@"%@  %@\n", [df stringFromDate:[NSDate date]], msg];
+    NSString *line = [NSString stringWithFormat:@"%@  %@\n",
+                      [df stringFromDate:[NSDate date]], msg];
 
-    // stderr（launchd 会写进自己的日志）
+    // stderr（launchd 会写进 StandardErrorPath）
     fputs(line.UTF8String, stderr);
     fflush(stderr);
 
-    // 文件日志，带行数上限
-    pthread_mutex_lock(&gLogMutex);
+    // 文件日志：append 模式，进程级互斥
+    static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_lock(&m);
     @autoreleasepool {
-        NSFileManager *fm = [NSFileManager defaultManager];
-        [fm createDirectoryAtPath:PS_STATE_DIR withIntermediateDirectories:YES
-                       attributes:@{NSFilePosixPermissions: @(0755)} error:NULL];
+        mkdir("/var/mobile/Library/ProxyShare", 0755);
 
-        NSMutableArray<NSString *> *lines = [NSMutableArray array];
-        NSString *old = [NSString stringWithContentsOfFile:PS_LOG_FILE
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:NULL];
-        if (old.length) [lines addObjectsFromArray:[old componentsSeparatedByString:@"\n"]];
-
-        // 去掉尾部空串后追加
-        while (lines.count && [lines.lastObject length] == 0) [lines removeLastObject];
-        [lines addObject:[line stringByTrimmingCharactersInSet:
-                           [NSCharacterSet newlineCharacterSet]]];
-
-        if ((NSInteger)lines.count > PS_LOG_MAX_LINES) {
-            NSUInteger drop = lines.count - PS_LOG_MAX_LINES;
-            [lines removeObjectsInRange:NSMakeRange(0, drop)];
+        FILE *fp = fopen("/var/mobile/Library/ProxyShare/proxy.log", "a");
+        if (fp) {
+            fputs(line.UTF8String, fp);
+            fclose(fp);
+            chmod("/var/mobile/Library/ProxyShare/proxy.log", 0644);
         }
-        NSString *out = [[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
-        [out writeToFile:PS_LOG_FILE atomically:YES
-                encoding:NSUTF8StringEncoding error:NULL];
-        chmod(PS_LOG_FILE.fileSystemRepresentation, 0644);
     }
-    pthread_mutex_unlock(&gLogMutex);
+    pthread_mutex_unlock(&m);
 }
 
 // 统计

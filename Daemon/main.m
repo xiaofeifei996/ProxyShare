@@ -38,6 +38,25 @@ int main(int argc, char *argv[])
     signal(SIGPIPE, SIG_IGN);
 
     @autoreleasepool {
+        // 先无条件写一条到 stderr，确认进程真的起来了
+        fprintf(stderr, "[psd] main() entered, pid=%d\n", getpid());
+        fflush(stderr);
+
+        mkdir("/var/mobile/Library/ProxyShare", 0755);
+
+        // 首次运行：写默认配置（不覆盖已有）
+        if (access("/var/mobile/Library/ProxyShare/config.plist", F_OK) != 0) {
+            NSDictionary *def = @{
+                @"enabled"     : @YES,
+                @"socksPort"   : @(PS_DEFAULT_SOCKS_PORT),
+                @"httpPort"    : @(PS_DEFAULT_HTTP_PORT),
+                @"bindAddress" : PS_DEFAULT_BIND,
+            };
+            [def writeToFile:@"/var/mobile/Library/ProxyShare/config.plist" atomically:YES];
+            chmod("/var/mobile/Library/ProxyShare/config.plist", 0644);
+            fprintf(stderr, "[psd] 已生成默认 config.plist\n");
+        }
+
         PSLog(@"===== ProxyShare 守护进程启动 (pid %d) =====", getpid());
 
         // 未启用则直接退出，交给 launchd 的 KeepAlive 判断
@@ -49,6 +68,7 @@ int main(int argc, char *argv[])
 
         uint16_t socksPort = (uint16_t)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
         uint16_t httpPort  = (uint16_t)PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT);
+        PSLog(@"读取配置：SOCKS=:%u  HTTP=:%u", socksPort, httpPort);
 
         gServer = [PSProxyServer new];
         NSString *err = nil;
@@ -76,12 +96,20 @@ int main(int argc, char *argv[])
         dispatch_source_set_timer(cfgTimer,
                                   dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC),
                                   10 * NSEC_PER_SEC, NSEC_PER_SEC);
+        // 用当前配置初始化，避免首次 tick 就误判为「变更」
+        static BOOL inited = NO;
         static NSInteger lastHash = 0;
+        if (!inited) {
+            inited = YES;
+            lastHash = (PSConfigBool(@"enabled", YES) ? 1000000 : 0)
+                     + PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT) * 1000
+                     + PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT);
+        }
         dispatch_source_set_event_handler(cfgTimer, ^{
             BOOL on = PSConfigBool(@"enabled", YES);
             NSInteger sp = PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
             NSInteger hp = PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT);
-            NSInteger h = on * 1000000 + sp * 1000 + hp;
+            NSInteger h = (on ? 1000000 : 0) + sp * 1000 + hp;
             if (h == lastHash) return;
             lastHash = h;
 
@@ -91,7 +119,7 @@ int main(int argc, char *argv[])
                 PSWriteRuntimeState(NO, nil);
                 exit(0);
             }
-            PSLog(@"配置变更，重启监听");
+            PSLog(@"配置变更（SOCKS=:%ld HTTP=:%ld），重启监听", (long)sp, (long)hp);
             [gServer stop];
             NSString *e = nil;
             if (![gServer startWithSOCKS:(uint16_t)sp http:(uint16_t)hp error:&e]) {

@@ -8,7 +8,7 @@
 //     对设备上所有进程生效，包括 root 守护进程。因此本进程的 outbound connect()
 //     会自动走隧道，无需任何 hook、无需代理软件开端口。
 //  2. 本进程只负责：监听局域网端口 -> 解析 SOCKS5 / HTTP CONNECT -> connect 目标 -> 双向转发。
-//  3. 配置与日志放在沙盒外的共享目录，App/设置面板/SSH 都能读写。
+//  3. 配置(config.plist) 与 运行状态(state.plist) **分两个文件**，互不覆盖。
 //
 
 #ifndef PS_COMMON_H
@@ -19,7 +19,8 @@
 
 // 共享目录（root 可写，mobile 可读）
 #define PS_STATE_DIR        @"/var/mobile/Library/ProxyShare"
-#define PS_STATE_FILE       @"/var/mobile/Library/ProxyShare/state.plist"
+#define PS_CONFIG_FILE      @"/var/mobile/Library/ProxyShare/config.plist"   // 只读配置
+#define PS_STATE_FILE       @"/var/mobile/Library/ProxyShare/state.plist"    // 运行状态（程序写）
 #define PS_LOG_FILE         @"/var/mobile/Library/ProxyShare/proxy.log"
 #define PS_PREFS_DOMAIN     @"com.axs.proxyshare"
 
@@ -43,7 +44,7 @@ void         PSWriteState(NSDictionary *state);
 // 日志（同时写文件与 stderr）
 void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
 
-// 统计（守护进程写，面板/状态文件读）
+// 统计
 @interface PSStats : NSObject
 @property (atomic, assign) uint64_t acceptedConnections;
 @property (atomic, assign) uint64_t activeConnections;

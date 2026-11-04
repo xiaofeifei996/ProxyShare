@@ -39,11 +39,14 @@ mkdir -p "$STAGE/DEBIAN"
 cp control "$STAGE/DEBIAN/control"
 cp DEBIAN/postinst "$STAGE/DEBIAN/postinst"
 cp DEBIAN/prerm "$STAGE/DEBIAN/prerm"
+chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 
 find "$STAGE" -type d -exec chmod 0755 {} \;
 find "$STAGE" -type f -name "*.plist" -exec chmod 0644 {} \;
-chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"
 chmod 0755 "$STAGE/usr/libexec/psd" "$STAGE/usr/libexec/psd-launcher"
+
+# 确认 DEBIAN 存在（dpkg-deb 要求）
+[ -f "$STAGE/DEBIAN/control" ] || { echo "错误: DEBIAN/control 缺失" >&2; exit 1; }
 
 DEB="packages/${NAME}_${VERSION}_${VARIANT}.deb"
 dpkg-deb -Zxz --root-owner-group -b "$STAGE" "$DEB"
