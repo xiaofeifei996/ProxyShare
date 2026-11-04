@@ -2,20 +2,18 @@
 # 安装后：准备目录、注册守护进程
 set -e
 
-SHARE=/Library/ProxyShare
+SHARE=/var/tmp/ProxyShare
 
-# 1) 建共享目录（root 守护进程可写；0777 让 mobile 也能读日志）
 mkdir -p "$SHARE"
-chown root:wheel "$SHARE" 2>/dev/null || true
 chmod 0777 "$SHARE"
 
-# 2) 给用户一个方便找的位置（软链接，不占空间）
-mkdir -p /var/mobile/Library 2>/dev/null || true
+# 给用户一个方便找的位置（软链接）
 if [ ! -e /var/mobile/Library/ProxyShare ]; then
+  mkdir -p /var/mobile/Library 2>/dev/null || true
   ln -s "$SHARE" /var/mobile/Library/ProxyShare 2>/dev/null || true
 fi
 
-# 3) 默认配置（不覆盖已有）
+# 默认配置（不覆盖已有）
 if [ ! -f "$SHARE/config.plist" ]; then
   cat > "$SHARE/config.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -32,7 +30,7 @@ PLIST
   chmod 0666 "$SHARE/config.plist"
 fi
 
-# 4) 注册并启动
+# 注册并启动
 DAEMON=/Library/LaunchDaemons/com.axs.proxyshare.plist
 if [ -f "$DAEMON" ]; then
   launchctl bootout system "$DAEMON" 2>/dev/null || true
@@ -40,5 +38,5 @@ if [ -f "$DAEMON" ]; then
   launchctl bootstrap system "$DAEMON" 2>/dev/null || launchctl load -w "$DAEMON" 2>/dev/null || true
 fi
 
-echo "[ProxyShare] 安装完成，日志目录 $SHARE"
+echo "[ProxyShare] 安装完成，数据目录 $SHARE"
 exit 0

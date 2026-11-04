@@ -35,6 +35,16 @@ cp .theos/obj/psd "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
+# 用 entitlements 重新签名（关键：脱离 App 沙盒，否则 /Library 等路径不可写）
+echo "=== 用 entitlements 签名 psd ==="
+if command -v ldid >/dev/null 2>&1; then
+    ldid -S psd.entitlements "$STAGE/usr/libexec/psd"
+    echo "签名完成，校验："
+    ldid -e "$STAGE/usr/libexec/psd" | head -20
+else
+    echo "警告: 未找到 ldid，跳过签名"
+fi
+
 mkdir -p "$STAGE/DEBIAN"
 cp control "$STAGE/DEBIAN/control"
 cp DEBIAN/postinst "$STAGE/DEBIAN/postinst"
