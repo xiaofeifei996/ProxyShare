@@ -45,7 +45,7 @@ chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 
 # 安装设置面板 bundle
 if [ -n "$PREFS_BUNDLE" ] && [ -d "$PREFS_BUNDLE" ]; then
-    DEST="$STAGE/Library/PreferenceBundles/ProxySharePrefs"
+    DEST="$STAGE/Library/PreferenceBundles/ProxySharePrefs.bundle"
     rm -rf "$DEST"
     mkdir -p "$DEST"
     cp -R "$PREFS_BUNDLE"/. "$DEST"/
@@ -89,10 +89,10 @@ chmod 0755 "$STAGE/usr/libexec/psd"
 chmod 0755 "$STAGE/usr/bin/psctl"
 
 # 面板也要签名（否则 Settings 拒绝加载）
-if [ -d "$STAGE/Library/PreferenceBundles/ProxySharePrefs" ]; then
+PB="$STAGE/Library/PreferenceBundles/ProxySharePrefs.bundle"
+if [ -d "$PB" ]; then
     if command -v codesign >/dev/null 2>&1; then
-        codesign --force --sign - \
-                 "$STAGE/Library/PreferenceBundles/ProxySharePrefs/ProxySharePrefs" 2>&1 | head -2 || true
+        codesign --force --sign - "$PB/ProxySharePrefs" 2>&1 | head -2 || true
     fi
 fi
 

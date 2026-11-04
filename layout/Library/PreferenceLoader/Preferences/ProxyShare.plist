@@ -1,9 +1,21 @@
-{
-	entry = {
-		bundle = "ProxySharePrefs";
-		cell = PSLinkCell;
-		detail = "PSShareController";
-		label = "ProxyShare";
-		icon = "icon.png";
-	};
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>bundle</key>
+		<string>ProxySharePrefs</string>
+		<key>cell</key>
+		<string>PSLinkCell</string>
+		<key>detail</key>
+		<string>PSShareController</string>
+		<key>icon</key>
+		<string>icon.png</string>
+		<key>isController</key>
+		<string>1</string>
+		<key>label</key>
+		<string>ProxyShare</string>
+	</dict>
+</dict>
+</plist>

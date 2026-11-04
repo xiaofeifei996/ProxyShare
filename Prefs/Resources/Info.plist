@@ -1,12 +1,32 @@
-{
-	"CFBundleDevelopmentRegion" = "zh_CN";
-	"CFBundleDisplayName" = "ProxyShare";
-	"CFBundleExecutable" = "ProxySharePrefs";
-	"CFBundleIdentifier" = "com.axs.proxyshare.prefs";
-	"CFBundleInfoDictionaryVersion" = "6.0";
-	"CFBundleName" = "ProxySharePrefs";
-	"CFBundlePackageType" = "BNDL";
-	"CFBundleShortVersionString" = "1.1.0";
-	"CFBundleVersion" = "1.1.0";
-	"NSPrincipalClass" = "PSShareController";
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>ProxyShare</string>
+	<key>CFBundleExecutable</key>
+	<string>ProxySharePrefs</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.axs.proxyshare.prefs</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>ProxySharePrefs</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.1.0</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>1.1.0</string>
+	<key>DTPlatformName</key>
+	<string>iphoneos</string>
+	<key>MinimumOSVersion</key>
+	<string>15.0</string>
+	<key>NSPrincipalClass</key>
+	<string>PSShareController</string>
+</dict>
+</plist>
