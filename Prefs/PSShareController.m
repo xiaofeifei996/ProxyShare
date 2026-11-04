@@ -174,38 +174,58 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
 
 - (id)readPreferenceValue:(PSSpecifier *)specifier {
     NSString *key = specifier.properties[@"key"];
-    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
-    id v = [ud objectForKey:key];
-    if (v) return v;
-    return specifier.properties[@"default"];
+    NSDictionary *d = [self readPrefsDict];
+    id v = d[key];
+    return v ?: specifier.properties[@"default"];
+}
+
+// 直接读写 plist 文件，不用 NSUserDefaults。
+// 原因：NSUserDefaults 会把整个域的内存副本写回磁盘，
+// 里面可能残留着历史键（比如旧的 ACL 规则），
+// 一改开关就把它们全都写回去，导致诡异的行为。
+- (NSString *)prefsFilePath {
+    NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
+    NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base error:NULL];
+    for (NSString *d in dirs) {
+        if (![d hasPrefix:@".jbroot-"]) continue;
+        NSString *p = [NSString stringWithFormat:
+            @"%@/%@/var/mobile/Library/Preferences/%@.plist", base, d, kPrefsDomain];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:p]) return p;
+    }
+    return @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist";
+}
+
+- (NSMutableDictionary *)readPrefsDict {
+    NSString *p = [self prefsFilePath];
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
+    return [d isKindOfClass:[NSDictionary class]] ? [d mutableCopy]
+                                                  : [NSMutableDictionary dictionary];
+}
+
+- (void)writePrefsDict:(NSDictionary *)dict {
+    NSString *p = [self prefsFilePath];
+    [dict writeToFile:p atomically:YES];
+    chmod(p.fileSystemRepresentation, 0644);
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     NSString *key = specifier.properties[@"key"];
-    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
-    [ud setObject:value forKey:key];
-    [ud synchronize];
 
-    // 关键：NSUserDefaults 写的文件权限是 0600（只有 mobile 能读），
-    // 而 psd 以 root 运行且受沙盒限制，读不到 → 放开成 0644。
-    // synchronize 之后文件可能仍在异步落盘，所以延时多点补几次。
+    // 只改这一个键，其余内容原样保留（不再整份回写）
+    NSMutableDictionary *d = [self readPrefsDict];
+    if (value) d[key] = value;
+    else       [d removeObjectForKey:key];
+    [self writePrefsDict:d];
+
     [self fixPrefsPermissions];
-    for (int i = 1; i <= 4; i++) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
-                                     (int64_t)(i * 0.25 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [self fixPrefsPermissions];
-        });
-    }
 
     [super setPreferenceValue:value specifier:specifier];
 
     // 改了端口就更新显示
     if ([key isEqualToString:@"socksPort"] || [key isEqualToString:@"httpPort"]) {
-        NSString *s = [[ud objectForKey:@"socksPort"] description] ?: @"47680";
-        NSString *h = [[ud objectForKey:@"httpPort"]  description] ?: @"47681";
-        self.cfg[@"socks"] = s;
-        self.cfg[@"http"]  = h;
+        NSDictionary *nd = [self readPrefsDict];
+        if (nd[@"socksPort"]) self.cfg[@"socks"] = [nd[@"socksPort"] description];
+        if (nd[@"httpPort"])  self.cfg[@"http"]  = [nd[@"httpPort"]  description];
     }
 
     // 稍等让守护进程读到新配置
