@@ -501,6 +501,9 @@ static int PSListenOn(uint16_t port, NSString *bindAddr, NSString **errOut)
     if (_running) return YES;
 
     NSString *bind = PSConfigString(@"bindAddress", PS_DEFAULT_BIND);
+    // 命令行 --bind 会设置该环境变量，优先级最高
+    const char *ov = getenv("PS_BIND_OVERRIDE");
+    if (ov && *ov) bind = @(ov);
     NSString *e1 = nil, *e2 = nil;
     _socksFD = PSListenOn(socksPort, bind, &e1);
 

@@ -1,23 +1,11 @@
-#!/bin/bash
-# ProxyShare 守护进程启动器（RootHide 兼容）
-# RootHide 下 jbroot 是 /var/containers/Bundle/Application/.jbroot-XXXX，
-# 该路径因设备而异，无法在构建时写死，因此用本脚本在运行期解析。
+#!/var/jb/usr/bin/bash
+# ProxyShare 启动器
+# RootHide 下 root 守护进程与 shell 的路径视图可能不同，
+# 因此本脚本只负责解析出 psd 的真实路径，所有参数原样透传。
 
 JBROOT="$(readlink -f /var/jb 2>/dev/null || echo /)"
-# RootHide：/var/jb -> /，但真实 jailbreak 根在 .jbroot-*
-if [ -d /var/jb/var/lib/dpkg ] || [ -d /var/containers/Bundle/Application ]; then
-  for d in /var/containers/Bundle/Application/.jbroot-*; do
-    if [ -d "$d/usr/libexec/psd" ] || [ -d "$d/usr/libexec" ]; then
-      JBROOT="$d"
-      break
-    fi
-  done
-fi
 
 BIN="$JBROOT/usr/libexec/psd"
-if [ ! -x "$BIN" ]; then
-  echo "[psd-launcher] 找不到 $BIN" >&2
-  exit 1
-fi
+[ -x "$BIN" ] || BIN=/usr/libexec/psd
 
 exec "$BIN" "$@"

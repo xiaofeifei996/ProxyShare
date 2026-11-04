@@ -137,6 +137,18 @@ int main(int argc, char *argv[])
         // 先无条件写一条到 stderr，确认进程真的起来了
         fprintf(stderr, "[psd] main() entered, pid=%d\n", getpid());
         fflush(stderr);
+
+        // ---- 命令行参数优先（RootHide 下文件视图可能隔离，参数最可靠）----
+        NSInteger argSocks = 0, argHttp = 0;
+        NSString *argBind = nil;
+        BOOL argDisable = NO;
+        for (int i = 1; i < argc; i++) {
+            if (!strcmp(argv[i], "--socks") && i + 1 < argc)       argSocks = atoi(argv[++i]);
+            else if (!strcmp(argv[i], "--http") && i + 1 < argc)   argHttp  = atoi(argv[++i]);
+            else if (!strcmp(argv[i], "--bind") && i + 1 < argc)   argBind  = @(argv[++i]);
+            else if (!strcmp(argv[i], "--off"))                    argDisable = YES;
+        }
+        if (argBind.length) setenv("PS_BIND_OVERRIDE", argBind.UTF8String, 1);
         mkdir(PS_STATE_DIR_C, 0755);
 
         // 首次运行：写默认配置（不覆盖已有）
@@ -166,15 +178,19 @@ int main(int argc, char *argv[])
         PSLog(@"===== ProxyShare 守护进程启动 (pid %d) =====", getpid());
 
         // 未启用则直接退出，交给 launchd 的 KeepAlive 判断
-        if (!PSConfigBool(@"enabled", YES)) {
-            PSLog(@"配置为未启用，退出");
+        if (argDisable || !PSConfigBool(@"enabled", YES)) {
+            PSLog(@"配置为未启用（%@），退出", argDisable ? @"启动参数 --off" : @"config.plist");
             PSWriteRuntimeState(NO, nil);
             return 0;
         }
 
-        uint16_t socksPort = (uint16_t)PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT);
-        uint16_t httpPort  = (uint16_t)PSConfigInt(@"httpPort",  PS_DEFAULT_HTTP_PORT);
-        PSLog(@"读取配置：SOCKS=:%u  HTTP=:%u", socksPort, httpPort);
+        uint16_t socksPort = (uint16_t)(argSocks > 0 ? argSocks
+                                       : PSConfigInt(@"socksPort", PS_DEFAULT_SOCKS_PORT));
+        uint16_t httpPort  = (uint16_t)(argHttp > 0 ? argHttp
+                                       : PSConfigInt(@"httpPort", PS_DEFAULT_HTTP_PORT));
+
+        PSLog(@"读取配置：SOCKS=:%u  HTTP=:%u%s", socksPort, httpPort,
+              (argSocks || argHttp) ? "（来自启动参数）" : "（来自 config.plist）");
 
         gServer = [PSProxyServer new];
         NSString *err = nil;
