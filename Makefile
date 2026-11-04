@@ -32,8 +32,5 @@ ProxySharePrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
-# 面板自己的资源（Root.plist 等）随 bundle 安装
-ProxySharePrefs_RESOURCE_DIRS = Prefs/Resources
-
 after-ProxySharePrefs-all::
 	@echo "=== ProxySharePrefs bundle 构建完成 ==="

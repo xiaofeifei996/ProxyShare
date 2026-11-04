@@ -44,10 +44,17 @@ chmod 0755 "$STAGE/usr/libexec/psd-launcher"
 if [ -n "$PREFS_BUNDLE" ] && [ -d "$PREFS_BUNDLE" ]; then
     DEST="$STAGE/Library/PreferenceBundles/ProxySharePrefs"
     rm -rf "$DEST"
-    mkdir -p "$STAGE/Library/PreferenceBundles"
-    cp -R "$PREFS_BUNDLE" "$DEST"
+    mkdir -p "$DEST"
+    cp -R "$PREFS_BUNDLE"/. "$DEST"/
+
+    # 资源（Root.plist / Info.plist / 图标）手动补进去——
+    # Theos 的 RESOURCE_DIRS 对 bundle 目标支持不稳定，直接拷更可靠
+    if [ -d Prefs/Resources ]; then
+        cp -R Prefs/Resources/. "$DEST"/
+    fi
+
     chmod -R 0755 "$DEST"
-    echo "已打包设置面板:"
+    echo "已打包设置面板，内容："
     ls -1 "$DEST"
 else
     echo "警告: 未找到设置面板 bundle，将只打包守护进程"
