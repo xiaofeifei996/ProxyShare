@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static NSString *const kPrefsDomain = @"com.axs.proxyshare";
 static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshare.plist";
@@ -28,6 +29,24 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
         _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
     }
     return _specifiers;
+}
+
+- (void)fixPrefsPermissions {
+    NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
+    NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base error:NULL];
+    for (NSString *d in dirs) {
+        if (![d hasPrefix:@".jbroot-"]) continue;
+        NSString *p = [NSString stringWithFormat:
+            @"%@/%@/var/mobile/Library/Preferences/com.axs.proxyshare.plist", base, d];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+            chmod(p.fileSystemRepresentation, 0644);
+        }
+    }
+    // 常规路径也处理一下
+    NSString *p2 = @"/var/mobile/Library/Preferences/com.axs.proxyshare.plist";
+    if ([[NSFileManager defaultManager] fileExistsAtPath:p2]) {
+        chmod(p2.fileSystemRepresentation, 0644);
+    }
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -166,6 +185,10 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
     [ud setObject:value forKey:key];
     [ud synchronize];
+
+    // 关键：NSUserDefaults 写的文件权限是 0600（只有 mobile 能读），
+    // 而 psd 以 root 运行且受沙盒限制，读不到 → 放开成 0644。
+    [self fixPrefsPermissions];
 
     [super setPreferenceValue:value specifier:specifier];
 
