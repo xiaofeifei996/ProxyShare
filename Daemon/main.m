@@ -43,6 +43,14 @@ static void PSWriteRuntimeState(BOOL running, NSString *err)
     } mutableCopy];
     if (err) d[@"bindError"] = err;
     PSWriteState(d);
+
+    // 同步一份到 AppGroup，让设置面板能显示连接数
+    NSMutableDictionary *shared = [d mutableCopy];
+    shared[@"bytesUp"]   = @(s.bytesUp);
+    shared[@"bytesDown"] = @(s.bytesDown);
+    shared[@"active"]    = @(s.activeConnections);
+    shared[@"proxyRunning"] = @(running);
+    PSWriteSharedStatus(shared);
 }
 
 // 重启监听（控制端口下发新端口时调用）

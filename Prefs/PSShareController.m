@@ -69,6 +69,13 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
 - (void)pollTick {
     if (!self.isViewLoaded || !self.view.window) return;
     self.cfg[@"proc"] = [self portListening] ? @"运行中" : @"已停止";
+
+    NSDictionary *st = [self readSharedStatus];
+    if (st) {
+        self.cfg[@"conn"] = [NSString stringWithFormat:@"活跃 %ld · 累计 %ld",
+                             (long)[st[@"active"] integerValue],
+                             (long)[st[@"connections"] integerValue]];
+    }
     [self reloadSpecifiers];
     [self performSelector:@selector(pollTick) withObject:nil afterDelay:3.0];
 }
@@ -94,6 +101,20 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
     self.cfg = m;
     m[@"proc"] = [self portListening] ? @"运行中" : @"已停止";
 
+    // 连接统计
+    NSDictionary *st = [self readSharedStatus];
+    if (st) {
+        NSInteger active = [st[@"active"] integerValue];
+        NSInteger total  = [st[@"connections"] integerValue];
+        m[@"conn"] = [NSString stringWithFormat:@"活跃 %ld · 累计 %ld",
+                      (long)active, (long)total];
+    } else {
+        m[@"conn"] = @"—";
+    }
+
+    // 先把地址写进两行按钮，再统一刷新（避免多次 reload）
+    [self ensureSpecifiersLoaded];
+    [self updateAddressRows];
     [self reloadSpecifiers];
 }
 
@@ -102,6 +123,20 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
     NSUInteger i = [args indexOfObject:flag];
     if (i == NSNotFound || i + 1 >= args.count) return nil;
     return args[i + 1];
+}
+
+// 读取守护进程写在 AppGroup 里的统计（root 写 / mobile 读，唯一共享通道）
+- (NSDictionary *)readSharedStatus {
+    NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
+    NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base error:NULL];
+    for (NSString *d in dirs) {
+        if (![d hasPrefix:@".jbroot-"]) continue;
+        NSString *p = [NSString stringWithFormat:
+            @"%@/%@/var/mobile/Library/ProxyShare/status.plist", base, d];
+        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:p];
+        if ([dict isKindOfClass:[NSDictionary class]]) return dict;
+    }
+    return nil;
 }
 
 - (NSString *)primaryIPv4 {
@@ -153,8 +188,36 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
     return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"http"] ?: @"?"];
 }
 
-- (void)copySocks:(PSSpecifier *)sp { [self copy:[self socksAddr:sp]]; }
-- (void)copyHTTP:(PSSpecifier *)sp  { [self copy:[self httpAddr:sp]]; }
+- (void)ensureSpecifiersLoaded {
+    (void)[self specifiers];   // 触发 loadSpecifiersFromPlistName
+}
+
+- (void)updateAddressRows {
+    NSString *ip = self.cfg[@"ip"] ?: @"?";
+    NSString *socks = [NSString stringWithFormat:@"%@:%@", ip, self.cfg[@"socks"] ?: @"?"];
+    NSString *http  = [NSString stringWithFormat:@"%@:%@", ip, self.cfg[@"http"]  ?: @"?"];
+
+    // PSButtonCell 不显示 detailTextLabel，直接把地址拼进 label 保证可见。
+    PSSpecifier *sp1 = [self specifierForID:@"socksAddrRow"];
+    if (sp1) {
+        [sp1 setProperty:[NSString stringWithFormat:@"SOCKS5  %@", socks] forKey:@"label"];
+        [sp1 setProperty:socks forKey:@"detail"];
+    }
+    PSSpecifier *sp2 = [self specifierForID:@"httpAddrRow"];
+    if (sp2) {
+        [sp2 setProperty:[NSString stringWithFormat:@"HTTP    %@", http] forKey:@"label"];
+        [sp2 setProperty:http forKey:@"detail"];
+    }
+
+    // 缓存地址，供复制使用（label 已被改写，不能再从 label 取）
+    self.cfg[@"socksAddr"] = socks;
+    self.cfg[@"httpAddr"]  = http;
+}
+
+- (id)connValue:(PSSpecifier *)sp { return self.cfg[@"conn"] ?: @"—"; }
+
+- (void)copySocks:(PSSpecifier *)sp { [self copy:self.cfg[@"socksAddr"] ?: [self socksAddr:sp]]; }
+- (void)copyHTTP:(PSSpecifier *)sp  { [self copy:self.cfg[@"httpAddr"]  ?: [self httpAddr:sp]]; }
 
 - (void)copy:(NSString *)text {
     [UIPasteboard generalPasteboard].string = text;

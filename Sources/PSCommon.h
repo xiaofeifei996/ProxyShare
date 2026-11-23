@@ -86,6 +86,13 @@ BOOL PSACLValidRule(NSString *rule);
 NSDictionary *PSReadState(void);
 void         PSWriteState(NSDictionary *state);
 
+// 供设置面板读取的共享状态。
+// RootHide 下只有 AppGroup 目录是 root 与 mobile 真正共享的：
+//   /private/var/mobile/Containers/Shared/AppGroup/.jbroot-XXXX/var/mobile/Library/ProxyShare/
+// 守护进程（root）写，设置面板（mobile）读。
+NSString     *PSSharedStatusPath(void);
+void          PSWriteSharedStatus(NSDictionary *status);
+
 // ---------------------------------------------------------------- 日志
 
 void PSLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);

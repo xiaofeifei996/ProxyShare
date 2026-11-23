@@ -351,6 +351,51 @@ void PSWriteState(NSDictionary *state)
     chmod(PS_STATE_FILE_C, 0644);
 }
 
+
+// ================================================================ 共享状态
+//
+// RootHide 下 root 与 mobile 的文件视图大部分是隔离的，唯一真正共享的是
+// AppGroup 目录（.jbroot-XXXX 会随重装/重启变化，所以每次都动态扫描）。
+// 守护进程把统计写到这里，设置面板就能显示连接数。
+
+static NSString *gSharedDir = nil;
+
+NSString *PSSharedStatusPath(void)
+{
+    if (!gSharedDir) {
+        NSString *base = @"/private/var/mobile/Containers/Shared/AppGroup";
+        NSArray *dirs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:base
+                                                                            error:NULL];
+        for (NSString *d in dirs) {
+            if (![d hasPrefix:@".jbroot-"]) continue;
+            NSString *cand = [NSString stringWithFormat:
+                @"%@/%@/var/mobile/Library/ProxyShare", base, d];
+            // 目录可能还没建，只要 .jbroot-* 存在就用它
+            gSharedDir = cand;
+            break;
+        }
+    }
+    if (!gSharedDir) return nil;
+    return [gSharedDir stringByAppendingPathComponent:@"status.plist"];
+}
+
+void PSWriteSharedStatus(NSDictionary *status)
+{
+    NSString *path = PSSharedStatusPath();
+    if (!path) return;
+
+    // 确保目录存在
+    NSString *dir = [path stringByDeletingLastPathComponent];
+    [[NSFileManager defaultManager] createDirectoryAtPath:dir
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:NULL];
+
+    if ([status writeToFile:path atomically:YES]) {
+        chmod(path.fileSystemRepresentation, 0644);
+    }
+}
+
 // ================================================================ 日志
 
 // 纯 C 实现（时间戳用 strftime），完全避开 ARC / autoreleasepool
