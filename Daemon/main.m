@@ -37,6 +37,7 @@ static void PSWriteRuntimeState(BOOL running, NSString *err)
         @"active"      : @(s.activeConnections),
         @"rejected"    : @(s.rejectedConnections),
         @"clients"     : @(PSClientCount()),
+        @"clientIPs"   : PSClientList() ?: @[],
         @"bytesUp"     : @(s.bytesUp),
         @"bytesDown"   : @(s.bytesDown),
         @"lastError"   : s.lastError ?: @"",
