@@ -23,7 +23,7 @@
 #include <strings.h>
 
 static const int kConnectTimeoutSec = 20;
-static const int kIdleTimeoutSec    = 600;
+static const int kIdleTimeoutSec    = 120;   // 2 分钟无数据即断开（防止半死连接长期占用）
 static const size_t kBufSize        = 32768;
 
 #pragma mark - 小工具
@@ -125,7 +125,9 @@ static int PSConnectWithTimeout(const char *host, uint16_t port, int timeoutSec)
 
 #pragma mark - 双向转发
 
-static void PSPump(int a, int b)
+static void PSClientTouch(NSString *ip);   // 前向声明（PSPump 里要用）
+
+static void PSPump(int a, int b, NSString *peerIP)
 {
     char *buf = malloc(kBufSize);
     if (!buf) return;
@@ -157,6 +159,7 @@ static void PSPump(int a, int b)
                     sent += w;
                 }
                 PSSharedStats().bytesUp += (uint64_t)n;
+                PSClientTouch(peerIP);
                 lastActive = time(NULL);
                 if (!bOpen) aOpen = NO;
             }
@@ -172,6 +175,7 @@ static void PSPump(int a, int b)
                     sent += w;
                 }
                 PSSharedStats().bytesDown += (uint64_t)n;
+                PSClientTouch(peerIP);
                 lastActive = time(NULL);
                 if (!aOpen) bOpen = NO;
             }
@@ -183,18 +187,39 @@ static void PSPump(int a, int b)
 #pragma mark - 客户端计数（按 IP 去重）
 
 // 统计「当前有几台设备连着我」。
-// 一个客户端通常会开多条连接，所以不能直接数连接数，要按来源 IP 去重。
+//
+// 不能只靠连接计数：客户端异常断开（无 FIN，如切 Wi-Fi、休眠、App 被杀）时，
+// 服务端 read 会一直阻塞，连接条目迟迟不释放，于是出现「设备早断开了还显示在线」。
+//
+// 所以同时记录每个 IP 的**最后活跃时间**，只有最近有流量的才算在线。
+// 20 秒没有任何数据往来就视为离线。
 
 static pthread_mutex_t gCliMutex = PTHREAD_MUTEX_INITIALIZER;
-static NSMutableDictionary<NSString *, NSNumber *> *gClients = nil;
+static NSMutableDictionary<NSString *, NSNumber *> *gClients = nil;   // ip -> 连接数
+static NSMutableDictionary<NSString *, NSNumber *> *gCliLast = nil;    // ip -> 最后活跃 ts
+
+static NSString *PSClientKey(const char *ipStr)
+{
+    return ipStr ? @(ipStr) : nil;
+}
 
 static void PSClientAdd(NSString *ip)
 {
     if (!ip.length) return;
     pthread_mutex_lock(&gCliMutex);
     if (!gClients) gClients = [NSMutableDictionary dictionary];
-    NSInteger n = [gClients[ip] integerValue] + 1;
-    gClients[ip] = @(n);
+    if (!gCliLast) gCliLast  = [NSMutableDictionary dictionary];
+    gClients[ip] = @([gClients[ip] integerValue] + 1);
+    gCliLast[ip] = @([[NSDate date] timeIntervalSince1970]);
+    pthread_mutex_unlock(&gCliMutex);
+}
+
+static void PSClientTouch(NSString *ip)
+{
+    if (!ip.length) return;
+    pthread_mutex_lock(&gCliMutex);
+    if (!gCliLast) gCliLast = [NSMutableDictionary dictionary];
+    if (gClients[ip]) gCliLast[ip] = @([[NSDate date] timeIntervalSince1970]);
     pthread_mutex_unlock(&gCliMutex);
 }
 
@@ -203,30 +228,47 @@ static void PSClientRemove(NSString *ip)
     if (!ip.length) return;
     pthread_mutex_lock(&gCliMutex);
     NSInteger n = [gClients[ip] integerValue] - 1;
-    if (n <= 0) [gClients removeObjectForKey:ip];
-    else gClients[ip] = @(n);
+    if (n <= 0) {
+        [gClients removeObjectForKey:ip];
+        [gCliLast removeObjectForKey:ip];
+    } else {
+        gClients[ip] = @(n);
+    }
     pthread_mutex_unlock(&gCliMutex);
 }
 
+// 在线 = 有连接且最近 20 秒内有过数据往来
+#define PS_CLIENT_IDLE_LIMIT 20.0
+
 NSInteger PSClientCount(void)
 {
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    NSInteger n = 0;
     pthread_mutex_lock(&gCliMutex);
-    NSInteger n = (NSInteger)gClients.count;
+    for (NSString *ip in gClients) {
+        NSTimeInterval last = [gCliLast[ip] doubleValue];
+        if (now - last <= PS_CLIENT_IDLE_LIMIT) n++;
+    }
     pthread_mutex_unlock(&gCliMutex);
     return n;
 }
 
 NSArray<NSString *> *PSClientList(void)
 {
+    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+    NSMutableArray *out = [NSMutableArray array];
     pthread_mutex_lock(&gCliMutex);
-    NSArray *list = gClients.allKeys;
+    for (NSString *ip in gClients) {
+        NSTimeInterval last = [gCliLast[ip] doubleValue];
+        if (now - last <= PS_CLIENT_IDLE_LIMIT) [out addObject:ip];
+    }
     pthread_mutex_unlock(&gCliMutex);
-    return list ?: @[];
+    return out;
 }
 
 #pragma mark - SOCKS5
 
-static void PSServeSOCKS5(int client)
+static void PSServeSOCKS5(int client, NSString *peerIP)
 {
     unsigned char buf[512];
 
@@ -293,7 +335,7 @@ static void PSServeSOCKS5(int client)
     if (write(client, ok, 10) != 10) { close(remote); return; }
 
     PSLog(@"[SOCKS5] %s:%u 已连通", host, port);
-    PSPump(client, remote);
+    PSPump(client, remote, peerIP);
     close(remote);
 }
 
@@ -359,7 +401,7 @@ static BOOL PSParseHTTPHeader(const char *hdr, char *hostOut, size_t hostLen,
     return YES;
 }
 
-static void PSServeHTTP(int client, const char *firstBytes, size_t firstLen)
+static void PSServeHTTP(int client, const char *firstBytes, size_t firstLen, NSString *peerIP)
 {
     char hdr[8192];
     size_t used = 0;
@@ -403,7 +445,7 @@ static void PSServeHTTP(int client, const char *firstBytes, size_t firstLen)
             close(remote); return;
         }
         PSLog(@"[HTTP] CONNECT %s:%u 已连通", host, port);
-        PSPump(client, remote);
+        PSPump(client, remote, peerIP);
         close(remote);
         return;
     }
@@ -434,7 +476,7 @@ static void PSServeHTTP(int client, const char *firstBytes, size_t firstLen)
     }
 
     PSLog(@"[HTTP] %s:%u 已转发", host, port);
-    PSPump(client, remote);
+    PSPump(client, remote, peerIP);
     close(remote);
 }
 
@@ -452,11 +494,11 @@ static void PSHandleClient(int client, NSString *peerIP)
             ssize_t n = recv(client, &first, 1, MSG_PEEK);
             if (n == 1) {
                 if (first == 0x05) {
-                    PSServeSOCKS5(client);
+                    PSServeSOCKS5(client, peerIP);
                 } else {
                     char b[8192];
                     ssize_t m = read(client, b, sizeof(b));   // 先读掉一部分
-                    if (m > 0) PSServeHTTP(client, b, (size_t)m);
+                    if (m > 0) PSServeHTTP(client, b, (size_t)m, peerIP);
                 }
             }
         }
