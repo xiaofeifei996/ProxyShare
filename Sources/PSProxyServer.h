@@ -8,4 +8,8 @@
 - (void)stop;
 @end
 
+// 当前连接的客户端（按来源 IP 去重）
+NSInteger PSClientCount(void);
+NSArray<NSString *> *PSClientList(void);
+
 #endif

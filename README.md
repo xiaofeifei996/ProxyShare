@@ -174,3 +174,5 @@ layout/                   安装布局（LaunchDaemon、启动器、PreferenceLo
 psd.entitlements          沙盒豁免签名配置
 build.sh                  打包脚本
 ```
+
+<!-- build trigger: 1.3.9 -->

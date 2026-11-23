@@ -72,9 +72,11 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
 
     NSDictionary *st = [self readSharedStatus];
     if (st) {
-        self.cfg[@"conn"] = [NSString stringWithFormat:@"活跃 %ld · 累计 %ld",
-                             (long)[st[@"active"] integerValue],
-                             (long)[st[@"connections"] integerValue]];
+        NSInteger clients = [st[@"clients"] integerValue];
+        NSInteger total   = [st[@"connections"] integerValue];
+        self.cfg[@"conn"] = clients > 0
+            ? [NSString stringWithFormat:@"%ld 台设备在线", (long)clients]
+            : [NSString stringWithFormat:@"无设备连接（累计 %ld 次）", (long)total];
     }
     [self reloadSpecifiers];
     [self performSelector:@selector(pollTick) withObject:nil afterDelay:3.0];
@@ -104,17 +106,15 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
     // 连接统计
     NSDictionary *st = [self readSharedStatus];
     if (st) {
-        NSInteger active = [st[@"active"] integerValue];
-        NSInteger total  = [st[@"connections"] integerValue];
-        m[@"conn"] = [NSString stringWithFormat:@"活跃 %ld · 累计 %ld",
-                      (long)active, (long)total];
+        NSInteger clients = [st[@"clients"] integerValue];
+        NSInteger total   = [st[@"connections"] integerValue];
+        m[@"conn"] = clients > 0
+            ? [NSString stringWithFormat:@"%ld 台设备在线", (long)clients]
+            : [NSString stringWithFormat:@"无设备连接（累计 %ld 次）", (long)total];
     } else {
         m[@"conn"] = @"—";
     }
 
-    // 先把地址写进两行按钮，再统一刷新（避免多次 reload）
-    [self ensureSpecifiersLoaded];
-    [self updateAddressRows];
     [self reloadSpecifiers];
 }
 
@@ -186,32 +186,6 @@ static NSString *const kPlistPath   = @"/Library/LaunchDaemons/com.axs.proxyshar
 }
 - (id)httpAddr:(PSSpecifier *)sp {
     return [NSString stringWithFormat:@"%@:%@", self.cfg[@"ip"] ?: @"?", self.cfg[@"http"] ?: @"?"];
-}
-
-- (void)ensureSpecifiersLoaded {
-    (void)[self specifiers];   // 触发 loadSpecifiersFromPlistName
-}
-
-- (void)updateAddressRows {
-    NSString *ip = self.cfg[@"ip"] ?: @"?";
-    NSString *socks = [NSString stringWithFormat:@"%@:%@", ip, self.cfg[@"socks"] ?: @"?"];
-    NSString *http  = [NSString stringWithFormat:@"%@:%@", ip, self.cfg[@"http"]  ?: @"?"];
-
-    // PSButtonCell 不显示 detailTextLabel，直接把地址拼进 label 保证可见。
-    PSSpecifier *sp1 = [self specifierForID:@"socksAddrRow"];
-    if (sp1) {
-        [sp1 setProperty:[NSString stringWithFormat:@"SOCKS5  %@", socks] forKey:@"label"];
-        [sp1 setProperty:socks forKey:@"detail"];
-    }
-    PSSpecifier *sp2 = [self specifierForID:@"httpAddrRow"];
-    if (sp2) {
-        [sp2 setProperty:[NSString stringWithFormat:@"HTTP    %@", http] forKey:@"label"];
-        [sp2 setProperty:http forKey:@"detail"];
-    }
-
-    // 缓存地址，供复制使用（label 已被改写，不能再从 label 取）
-    self.cfg[@"socksAddr"] = socks;
-    self.cfg[@"httpAddr"]  = http;
 }
 
 - (id)connValue:(PSSpecifier *)sp { return self.cfg[@"conn"] ?: @"—"; }

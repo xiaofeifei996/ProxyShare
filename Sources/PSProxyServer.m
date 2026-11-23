@@ -179,6 +179,50 @@ static void PSPump(int a, int b)
     free(buf);
 }
 
+#pragma mark - 客户端计数（按 IP 去重）
+
+// 统计「当前有几台设备连着我」。
+// 一个客户端通常会开多条连接，所以不能直接数连接数，要按来源 IP 去重。
+
+static pthread_mutex_t gCliMutex = PTHREAD_MUTEX_INITIALIZER;
+static NSMutableDictionary<NSString *, NSNumber *> *gClients = nil;
+
+static void PSClientAdd(NSString *ip)
+{
+    if (!ip.length) return;
+    pthread_mutex_lock(&gCliMutex);
+    if (!gClients) gClients = [NSMutableDictionary dictionary];
+    NSInteger n = [gClients[ip] integerValue] + 1;
+    gClients[ip] = @(n);
+    pthread_mutex_unlock(&gCliMutex);
+}
+
+static void PSClientRemove(NSString *ip)
+{
+    if (!ip.length) return;
+    pthread_mutex_lock(&gCliMutex);
+    NSInteger n = [gClients[ip] integerValue] - 1;
+    if (n <= 0) [gClients removeObjectForKey:ip];
+    else gClients[ip] = @(n);
+    pthread_mutex_unlock(&gCliMutex);
+}
+
+NSInteger PSClientCount(void)
+{
+    pthread_mutex_lock(&gCliMutex);
+    NSInteger n = (NSInteger)gClients.count;
+    pthread_mutex_unlock(&gCliMutex);
+    return n;
+}
+
+NSArray<NSString *> *PSClientList(void)
+{
+    pthread_mutex_lock(&gCliMutex);
+    NSArray *list = gClients.allKeys;
+    pthread_mutex_unlock(&gCliMutex);
+    return list ?: @[];
+}
+
 #pragma mark - SOCKS5
 
 static void PSServeSOCKS5(int client)
@@ -395,7 +439,7 @@ static void PSServeHTTP(int client, const char *firstBytes, size_t firstLen)
 
 #pragma mark - 连接分派
 
-static void PSHandleClient(int client)
+static void PSHandleClient(int client, NSString *peerIP)
 {
     PSSharedStats().activeConnections++;
     @autoreleasepool {
@@ -418,6 +462,7 @@ static void PSHandleClient(int client)
     }
     close(client);
     PSSharedStats().activeConnections--;
+    PSClientRemove(peerIP);
 }
 
 #pragma mark - 监听
@@ -520,10 +565,12 @@ static int PSListenOn(uint16_t port, NSString *bindAddr, NSString **errOut)
         }
 
         PSSharedStats().acceptedConnections++;
+        PSClientAdd(@(ip));
 
         int clientFD = c;
+        NSString *peerIP = @(ip);
         dispatch_async(_queue, ^{
-            PSHandleClient(clientFD);
+            PSHandleClient(clientFD, peerIP);
         });
         (void)name; (void)ip;
     }

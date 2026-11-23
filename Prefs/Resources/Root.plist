@@ -23,7 +23,7 @@
 		</dict>
 		<dict>
 			<key>cell</key><string>PSTitleValueCell</string>
-			<key>label</key><string>当前连接</string>
+			<key>label</key><string>在线设备</string>
 			<key>get</key><string>connValue:</string>
 		</dict>
 
@@ -71,15 +71,23 @@
 			<key>footerText</key><string>点一下即可复制，粘贴到对方设备的代理设置里。</string>
 		</dict>
 		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>SOCKS5</string>
+			<key>get</key><string>socksAddr:</string>
+		</dict>
+		<dict>
+			<key>cell</key><string>PSTitleValueCell</string>
+			<key>label</key><string>HTTP</string>
+			<key>get</key><string>httpAddr:</string>
+		</dict>
+		<dict>
 			<key>cell</key><string>PSButtonCell</string>
-			<key>id</key><string>socksAddrRow</string>
-			<key>label</key><string>SOCKS5 地址</string>
+			<key>label</key><string>复制 SOCKS5 地址</string>
 			<key>action</key><string>copySocks:</string>
 		</dict>
 		<dict>
 			<key>cell</key><string>PSButtonCell</string>
-			<key>id</key><string>httpAddrRow</string>
-			<key>label</key><string>HTTP 地址</string>
+			<key>label</key><string>复制 HTTP 地址</string>
 			<key>action</key><string>copyHTTP:</string>
 		</dict>
 
