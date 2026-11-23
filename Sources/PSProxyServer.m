@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <string.h>
+#include <pthread.h>
 #include <strings.h>
 
 static const int kConnectTimeoutSec = 20;
