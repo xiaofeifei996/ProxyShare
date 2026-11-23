@@ -1,0 +1,30 @@
+=== 构建变体: roothide ===
+[1;31m> [1;3;39mMaking all in psd…[m
+[1;31m> [1;3;39mMaking all for tool psd…[m
+[0;32m==> [1;39mCompiling ../Daemon/main.m (arm64e)…[m
+[0;32m==> [1;39mCompiling ../Daemon/main.m (arm64)…[m
+[0;32m==> [1;39mCompiling ../Sources/PSConfig.m (arm64e)…[m
+[0;32m==> [1;39mCompiling ../Sources/PSConfig.m (arm64)…[m
+[0;32m==> [1;39mCompiling ../Sources/PSProxyServer.m (arm64)…[m
+[0;32m==> [1;39mCompiling ../Sources/PSProxyServer.m (arm64e)…[m
+[1m../Sources/PSProxyServer.m:201:18: [0m[0;1;31merror: [0m[1munused function 'PSClientKey' [-Werror,-Wunused-function][0m
+  201 | static NSString *PSClientKey(const char *ipStr)[0m
+      | [0;1;32m                 ^~~~~~~~~~~
+[0m1 error generated.
+make[4]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64/../Sources/PSProxyServer.m.c0e284d6.o] Error 1
+make[4]: *** Waiting for unfinished jobs....
+[0;32m==> [1;39mCompiling ../Sources/PSControlServer.m (arm64e)…[m
+[1m../Sources/PSProxyServer.m:201:18: [0m[0;1;31merror: [0m[1munused function 'PSClientKey' [-Werror,-Wunused-function][0m
+  201 | static NSString *PSClientKey(const char *ipStr)[0m
+      | [0;1;32m                 ^~~~~~~~~~~
+[0m1 error generated.
+make[4]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64e/../Sources/PSProxyServer.m.59971fa9.o] Error 1
+make[4]: *** Waiting for unfinished jobs....
+make[3]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64/psd] Error 2
+make[3]: *** Waiting for unfinished jobs....
+make[3]: *** [/Users/runner/work/ProxyShare/ProxyShare/.theos/obj/arm64e/psd] Error 2
+make[2]: *** [internal-tool-all_] Error 2
+make[1]: *** [psd.all.tool.variables] Error 2
+make: *** [internal-all] Error 2
+psd = 未找到
+错误: psd 未生成
