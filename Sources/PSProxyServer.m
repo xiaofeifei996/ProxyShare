@@ -198,11 +198,6 @@ static pthread_mutex_t gCliMutex = PTHREAD_MUTEX_INITIALIZER;
 static NSMutableDictionary<NSString *, NSNumber *> *gClients = nil;   // ip -> 连接数
 static NSMutableDictionary<NSString *, NSNumber *> *gCliLast = nil;    // ip -> 最后活跃 ts
 
-static NSString *PSClientKey(const char *ipStr)
-{
-    return ipStr ? @(ipStr) : nil;
-}
-
 static void PSClientAdd(NSString *ip)
 {
     if (!ip.length) return;
