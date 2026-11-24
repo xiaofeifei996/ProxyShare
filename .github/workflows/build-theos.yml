@@ -16,7 +16,7 @@ env:
 jobs:
   build:
     name: Build (roothide)
-    runs-on: macos-15
+    runs-on: macos-15-intel-intel
 
     steps:
       - name: Setup Xcode
